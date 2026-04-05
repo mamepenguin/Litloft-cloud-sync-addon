@@ -1,10 +1,42 @@
 "use client";
 
 import { useCallback, useContext, useEffect, useState } from "react";
-import { Cloud } from "lucide-react";
+import { Clock, Cloud } from "lucide-react";
 import { WebSocketContext } from "@/components/WebSocketProvider";
 import { fetchSyncStatus, type SyncDriveStatus, type SyncProgress } from "./api";
 import SyncDriveCard from "./SyncDriveCard";
+
+function describeCron(expr: string): string {
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return expr;
+  const [min, hour, , , ] = parts;
+  if (hour.startsWith("*/")) {
+    const interval = parseInt(hour.slice(2), 10);
+    return `Every ${interval} hour${interval > 1 ? "s" : ""}`;
+  }
+  if (min.startsWith("*/")) {
+    const interval = parseInt(min.slice(2), 10);
+    return `Every ${interval} minute${interval > 1 ? "s" : ""}`;
+  }
+  if (hour !== "*" && min !== "*") {
+    return `Daily at ${hour.padStart(2, "0")}:${min.padStart(2, "0")}`;
+  }
+  return expr;
+}
+
+function formatNextSync(isoString: string): string {
+  const date = new Date(isoString);
+  const now = new Date();
+  const diffMs = date.getTime() - now.getTime();
+  const diffMin = Math.round(diffMs / 60000);
+  if (diffMin < 1) return "shortly";
+  if (diffMin < 60) return `in ${diffMin}min`;
+  const diffHour = Math.round(diffMs / 3600000);
+  if (diffHour < 24) return `in ${diffHour}h`;
+  const h = String(date.getHours()).padStart(2, "0");
+  const m = String(date.getMinutes()).padStart(2, "0");
+  return `${date.getMonth() + 1}/${date.getDate()} ${h}:${m}`;
+}
 
 interface SyncProgressEvent {
   drive: string;
@@ -33,6 +65,8 @@ interface SyncErrorEvent {
 export default function CloudSyncPage() {
   const { lastEvent } = useContext(WebSocketContext);
   const [drives, setDrives] = useState<SyncDriveStatus[]>([]);
+  const [schedule, setSchedule] = useState<string | null>(null);
+  const [nextSyncAt, setNextSyncAt] = useState<string | null>(null);
   const [progressMap, setProgressMap] = useState<
     Record<string, SyncProgress>
   >({});
@@ -41,7 +75,9 @@ export default function CloudSyncPage() {
   const loadStatus = useCallback(async () => {
     try {
       const data = await fetchSyncStatus();
-      setDrives(data);
+      setDrives(data.drives);
+      setSchedule(data.schedule);
+      setNextSyncAt(data.next_sync_at);
     } catch {
       // Silently fail, user can refresh
     }
@@ -147,7 +183,20 @@ export default function CloudSyncPage() {
 
   return (
     <div className="mx-auto max-w-4xl p-6">
-      <h1 className="mb-6 text-2xl font-bold text-text-primary">Cloud Sync</h1>
+      <div className="mb-6 flex items-end justify-between gap-4">
+        <h1 className="text-2xl font-bold text-text-primary">Cloud Sync</h1>
+        {schedule && (
+          <div className="flex items-center gap-1.5 text-xs text-text-muted">
+            <Clock size={12} />
+            <span>{describeCron(schedule)}</span>
+            {nextSyncAt && (
+              <span className="text-text-muted/60">
+                &middot; Next {formatNextSync(nextSyncAt)}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
       {drives.length === 0 ? (
         <div className="flex flex-col items-center gap-4 py-16 text-text-muted">

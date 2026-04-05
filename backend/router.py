@@ -18,6 +18,7 @@ router = APIRouter(prefix="/api/addons/cloud-sync", tags=["cloud-sync"])
 
 
 async def on_startup() -> None:
+    sync_manager.start_scheduler()
     logger.info("Cloud Sync addon initialized")
 
 

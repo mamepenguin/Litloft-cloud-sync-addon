@@ -6,6 +6,8 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from croniter import croniter
+
 import app.config as config
 from app.services.ws import manager
 
@@ -29,6 +31,7 @@ class SyncManager:
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._status: dict[str, SyncDriveStatus] = {}
         self._config: SyncConfig | None = None
+        self._scheduler_task: asyncio.Task[None] | None = None
 
     @staticmethod
     def _find_config() -> Path | None:
@@ -336,6 +339,17 @@ class SyncManager:
         - Trigger a drive scan to register new files in the DB
         """
 
+    def _get_next_sync_at(self) -> str | None:
+        cfg = self._load_config()
+        if not cfg.schedule:
+            return None
+        try:
+            cron = croniter(cfg.schedule, datetime.now(UTC))
+            next_dt = cron.get_next(datetime)
+            return next_dt.isoformat()
+        except (ValueError, KeyError):
+            return None
+
     def get_status(self) -> SyncStatusResponse:
         cfg = self._load_config()
         drives: list[SyncDriveStatus] = []
@@ -348,7 +362,11 @@ class SyncManager:
                     drive=mapping.drive,
                     remote=mapping.remote,
                 ))
-        return SyncStatusResponse(drives=drives)
+        return SyncStatusResponse(
+            drives=drives,
+            schedule=cfg.schedule,
+            next_sync_at=self._get_next_sync_at(),
+        )
 
     def get_log(self, drive_name: str) -> str:
         log_path = LOG_DIR / f"{self._safe_log_name(drive_name)}.log"
@@ -374,6 +392,64 @@ class SyncManager:
                     f.write(line)
         except OSError as exc:
             logger.error("Failed to write log to %s: %s", log_path, exc)
+
+    # ── Scheduler ──────────────────────────────────────────────
+
+    def start_scheduler(self) -> None:
+        cfg = self._load_config()
+        if not cfg.schedule:
+            logger.info("No schedule configured, skipping scheduler")
+            return
+        if not croniter.is_valid(cfg.schedule):
+            logger.error("Invalid cron expression: %s", cfg.schedule)
+            return
+        self._scheduler_task = asyncio.create_task(
+            self._scheduler_loop(cfg.schedule)
+        )
+        logger.info("Scheduler started with schedule: %s", cfg.schedule)
+
+    def stop_scheduler(self) -> None:
+        if self._scheduler_task is not None:
+            self._scheduler_task.cancel()
+            self._scheduler_task = None
+            logger.info("Scheduler stopped")
+
+    async def _scheduler_loop(self, cron_expr: str) -> None:
+        try:
+            while True:
+                now = datetime.now(UTC)
+                cron = croniter(cron_expr, now)
+                next_dt = cron.get_next(datetime)
+                delay = (next_dt - now).total_seconds()
+                logger.info(
+                    "Next scheduled sync at %s (in %.0fs)",
+                    next_dt.isoformat(),
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                await self._run_scheduled_sync()
+        except asyncio.CancelledError:
+            logger.info("Scheduler loop cancelled")
+
+    async def _run_scheduled_sync(self) -> None:
+        cfg = self._load_config()
+        for mapping in cfg.mappings:
+            drive_name = mapping.drive
+            if drive_name in self._processes:
+                logger.info(
+                    "Skipping scheduled sync for %s (already syncing)",
+                    drive_name,
+                )
+                continue
+            try:
+                await self.start_sync(drive_name)
+                logger.info("Scheduled sync started for %s", drive_name)
+            except (ValueError, RuntimeError) as exc:
+                logger.warning(
+                    "Scheduled sync failed to start for %s: %s",
+                    drive_name,
+                    exc,
+                )
 
 
 sync_manager = SyncManager()

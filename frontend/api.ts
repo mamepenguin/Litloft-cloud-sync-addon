@@ -27,15 +27,16 @@ export interface SyncDriveStatus {
 
 export interface SyncStatusResponse {
   drives: SyncDriveStatus[];
+  schedule: string | null;
+  next_sync_at: string | null;
 }
 
 const BASE = "/api/addons/cloud-sync";
 
-export async function fetchSyncStatus(): Promise<SyncDriveStatus[]> {
+export async function fetchSyncStatus(): Promise<SyncStatusResponse> {
   const res = await fetch(`${BASE}/status`, { credentials: "include" });
-  if (!res.ok) return [];
-  const data: SyncStatusResponse = await res.json();
-  return data.drives;
+  if (!res.ok) return { drives: [], schedule: null, next_sync_at: null };
+  return res.json();
 }
 
 export async function startSync(

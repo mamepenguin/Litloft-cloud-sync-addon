@@ -16,6 +16,7 @@ class SyncMapping(BaseModel):
 
 
 class SyncConfig(BaseModel):
+    schedule: str | None = None
     mappings: list[SyncMapping]
 
 
@@ -48,3 +49,5 @@ class SyncDriveStatus(BaseModel):
 
 class SyncStatusResponse(BaseModel):
     drives: list[SyncDriveStatus]
+    schedule: str | None = None
+    next_sync_at: str | None = None
