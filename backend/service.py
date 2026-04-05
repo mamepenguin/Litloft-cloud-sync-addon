@@ -160,13 +160,12 @@ class SyncManager:
         log_path: Path,
     ) -> list[bytes]:
         assert proc.stderr is not None
+        all_lines: list[bytes] = []
         log_lines: list[bytes] = []
         total_log_bytes = 0
 
         async for raw_line in proc.stderr:
-            if total_log_bytes < MAX_LOG_SIZE:
-                log_lines.append(raw_line)
-                total_log_bytes += len(raw_line)
+            all_lines.append(raw_line)
 
             line = raw_line.decode("utf-8", errors="replace").strip()
             if not line:
@@ -175,9 +174,16 @@ class SyncManager:
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
+                if total_log_bytes < MAX_LOG_SIZE:
+                    log_lines.append(raw_line)
+                    total_log_bytes += len(raw_line)
                 continue
 
             if "stats" not in entry:
+                # Non-stats entries (transfers, errors, etc.) go to log
+                if total_log_bytes < MAX_LOG_SIZE:
+                    log_lines.append(raw_line)
+                    total_log_bytes += len(raw_line)
                 continue
 
             stats = entry["stats"]
@@ -207,7 +213,7 @@ class SyncManager:
             })
 
         self._write_log(log_path, log_lines)
-        return log_lines
+        return all_lines
 
     def _update_progress(self, drive_name: str, progress: SyncProgress) -> None:
         current = self._status.get(drive_name)
