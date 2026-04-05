@@ -134,13 +134,17 @@ class SyncManager:
             )
             self._processes[drive_name] = proc
 
-            await self._parse_rclone_output(drive_name, proc, log_path)
+            log_lines = await self._parse_rclone_output(
+                drive_name, proc, log_path
+            )
 
             await proc.wait()
             elapsed = time.monotonic() - start_time
 
             result = self._build_result(drive_name, elapsed)
-            await self._handle_completion(drive_name, proc.returncode, result)
+            await self._handle_completion(
+                drive_name, proc.returncode, result, log_lines
+            )
 
         except Exception as exc:
             elapsed = time.monotonic() - start_time
@@ -154,7 +158,7 @@ class SyncManager:
         drive_name: str,
         proc: asyncio.subprocess.Process,
         log_path: Path,
-    ) -> None:
+    ) -> list[bytes]:
         assert proc.stderr is not None
         log_lines: list[bytes] = []
         total_log_bytes = 0
@@ -203,6 +207,7 @@ class SyncManager:
             })
 
         self._write_log(log_path, log_lines)
+        return log_lines
 
     def _update_progress(self, drive_name: str, progress: SyncProgress) -> None:
         current = self._status.get(drive_name)
@@ -227,8 +232,35 @@ class SyncManager:
             elapsed_seconds=round(elapsed, 1),
         )
 
+    _AUTH_ERROR_PATTERNS = (
+        "oauth2: token expired",
+        "oauth2: cannot fetch token",
+        "authError",
+        "invalid_grant",
+        "token has been expired or revoked",
+        "failed to refresh token",
+        "NoCredentialProviders",
+        "InvalidAccessKeyId",
+        "SignatureDoesNotMatch",
+        "AccessDenied",
+    )
+
+    @classmethod
+    def _classify_error(cls, log_lines: list[bytes]) -> str | None:
+        """Detect auth errors from rclone log output."""
+        for raw_line in log_lines:
+            line = raw_line.decode("utf-8", errors="replace")
+            for pattern in cls._AUTH_ERROR_PATTERNS:
+                if pattern in line:
+                    return "auth_expired"
+        return None
+
     async def _handle_completion(
-        self, drive_name: str, returncode: int | None, result: SyncResult
+        self,
+        drive_name: str,
+        returncode: int | None,
+        result: SyncResult,
+        log_lines: list[bytes],
     ) -> None:
         now = datetime.now(UTC).isoformat()
         current = self._status.get(drive_name)
@@ -251,7 +283,15 @@ class SyncManager:
             })
             await self._on_sync_complete(drive_name, result)
         else:
-            error_msg = f"rclone exited with code {returncode}"
+            error_kind = self._classify_error(log_lines)
+            if error_kind == "auth_expired":
+                error_msg = (
+                    "Authentication expired. "
+                    "Run 'rclone config reconnect <remote>:' on the host "
+                    "and restart the container."
+                )
+            else:
+                error_msg = f"rclone exited with code {returncode}"
             self._status[drive_name] = SyncDriveStatus(
                 drive=drive_name,
                 remote=remote,

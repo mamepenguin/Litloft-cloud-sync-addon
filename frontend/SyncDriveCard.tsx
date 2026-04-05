@@ -244,7 +244,17 @@ export default function SyncDriveCard({
       {effectiveStatus === "error" && (
         <div className="mt-4 space-y-3">
           {drive.error_message && (
-            <div className="rounded-md bg-red-400/10 p-3 text-xs text-red-400">
+            <div className={`rounded-md p-3 text-xs ${
+              drive.error_message.includes("Authentication expired")
+                ? "bg-amber-400/10 text-amber-400"
+                : "bg-red-400/10 text-red-400"
+            }`}>
+              {drive.error_message.includes("Authentication expired") && (
+                <div className="mb-1.5 flex items-center gap-1.5 font-semibold">
+                  <AlertTriangle size={14} />
+                  Re-authentication Required
+                </div>
+              )}
               {drive.error_message}
             </div>
           )}
