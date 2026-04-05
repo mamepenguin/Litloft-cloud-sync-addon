@@ -146,12 +146,18 @@ export default function SyncDriveCard({
         <div className="mt-4 space-y-3">
           {drive.last_result && (
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
-              <span>
-                {drive.last_result.transferred_files} files transferred
-              </span>
-              <span>
-                {formatFileSize(drive.last_result.transferred_bytes)}
-              </span>
+              {drive.last_result.transferred_files === 0 ? (
+                <span>Already up to date</span>
+              ) : (
+                <>
+                  <span>
+                    {drive.last_result.transferred_files} files transferred
+                  </span>
+                  <span>
+                    {formatFileSize(drive.last_result.transferred_bytes)}
+                  </span>
+                </>
+              )}
               <span>{formatElapsed(drive.last_result.elapsed_seconds)}</span>
               {drive.last_result.errors > 0 && (
                 <span className="text-red-400">
