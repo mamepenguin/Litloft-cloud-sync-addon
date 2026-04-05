@@ -1,0 +1,12 @@
+{
+  "mappings": [
+    {
+      "drive": "家族ビデオ",
+      "remote": "gdrive:homevault/family"
+    },
+    {
+      "drive": "テレビ番組",
+      "remote": "s3:my-bucket/tv"
+    }
+  ]
+}
