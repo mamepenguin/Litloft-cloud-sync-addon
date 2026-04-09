@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 ADDON_META = {
     "label": "Cloud Sync",
     "icon": "cloud",
-    "href": "/cloud-sync",
+    "href": "/addons/cloud-sync",
 }
 
 router = APIRouter(prefix="/api/addons/cloud-sync", tags=["cloud-sync"])
