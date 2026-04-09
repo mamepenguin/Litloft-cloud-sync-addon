@@ -5,9 +5,9 @@
   "sidebar": {
     "label": "Cloud Sync",
     "icon": "cloud",
-    "href": "/cloud-sync"
+    "href": "/addons/cloud-sync"
   },
-  "route": "/cloud-sync",
+  "route": "/addons/cloud-sync",
   "backend": {
     "requirements": "backend/requirements.txt"
   }

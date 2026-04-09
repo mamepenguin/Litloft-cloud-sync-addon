@@ -55,21 +55,9 @@ Edit `sync-config.json` with your drive-to-remote mappings:
 }
 ```
 
-### 3. Set up the frontend page
+### 3. Docker (recommended)
 
-Create `frontend/src/app/cloud-sync/page.tsx`:
-
-```tsx
-import CloudSyncPage from "@/addons/cloud-sync/CloudSyncPage"
-
-export default function Page() {
-  return <CloudSyncPage />
-}
-```
-
-### 4a. Docker (recommended)
-
-The HomeVault Dockerfiles automatically discover addons placed in `addons/`. rclone installation, Python dependencies, and frontend source copying are all handled during the build.
+The HomeVault Dockerfiles automatically discover addons placed in `addons/`. rclone installation, Python dependencies, frontend source copying, and page route generation are all handled during the build -- no manual setup required.
 
 Mount the rclone config and sync config into the container via `docker-compose.override.yml`:
 
@@ -87,14 +75,15 @@ Then rebuild:
 docker compose up -d --build
 ```
 
-### 4b. Local development
+The addon will be available at `/addons/cloud-sync`.
 
-Create symlinks so the backend and frontend can discover the addon source:
+### 4. Local development (optional)
+
+Run the setup script to create symlinks for backend and frontend:
 
 ```bash
 # From the HomeVault root directory
-ln -s ../../addons/cloud-sync/backend backend/addons/cloud-sync
-ln -s ../../../addons/cloud-sync/frontend frontend/src/addons/cloud-sync
+./setup-addons.sh
 ```
 
 Install dependencies manually:
