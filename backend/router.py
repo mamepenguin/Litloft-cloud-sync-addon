@@ -1,7 +1,9 @@
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
+
+from app.auth import require_admin
 
 from .schemas import SyncStatusResponse
 from .service import sync_manager
@@ -9,13 +11,19 @@ from .service import sync_manager
 logger = logging.getLogger(__name__)
 
 ADDON_META = {
-    "label": "Cloud Sync",
-    "icon": "cloud",
     "scope": "global",
-    "href": "/addons/cloud-sync",
+    "slots": {
+        "dashboard-widgets": [
+            {"id": "cloud-sync", "label": "Cloud Sync", "priority": 10},
+        ],
+    },
 }
 
-router = APIRouter(prefix="/api/addons/cloud-sync", tags=["cloud-sync"])
+router = APIRouter(
+    prefix="/api/addons/cloud-sync",
+    tags=["cloud-sync"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 async def on_startup() -> None:

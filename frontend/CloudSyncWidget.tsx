@@ -62,7 +62,7 @@ interface SyncErrorEvent {
   message: string;
 }
 
-export default function CloudSyncPage() {
+export default function CloudSyncWidget() {
   const { lastEvent } = useContext(WebSocketContext);
   const [drives, setDrives] = useState<SyncDriveStatus[]>([]);
   const [schedule, setSchedule] = useState<string | null>(null);
@@ -166,25 +166,15 @@ export default function CloudSyncPage() {
   }, [lastEvent]);
 
   const handleSyncStarted = useCallback(() => {
-    // Refresh status to pick up the syncing state
     loadStatus();
   }, [loadStatus]);
 
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-4xl p-6">
-        <h1 className="mb-6 text-2xl font-bold text-text-primary">
-          Cloud Sync
-        </h1>
-        <div className="py-12 text-center text-text-muted">Loading...</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="mx-auto max-w-4xl p-6">
-      <div className="mb-6 flex items-end justify-between gap-4">
-        <h1 className="text-2xl font-bold text-text-primary">Cloud Sync</h1>
+    <section>
+      <div className="mb-3 flex items-center justify-between gap-4">
+        <h2 className="text-sm font-semibold uppercase text-text-muted">
+          Cloud Sync
+        </h2>
         {schedule && (
           <div className="flex items-center gap-1.5 text-xs text-text-muted">
             <Clock size={12} />
@@ -198,12 +188,14 @@ export default function CloudSyncPage() {
         )}
       </div>
 
-      {drives.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 py-16 text-text-muted">
-          <Cloud size={48} strokeWidth={1.5} />
+      {loading ? (
+        <div className="py-8 text-center text-sm text-text-muted">Loading...</div>
+      ) : drives.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-bg-border bg-bg-card py-10 text-text-muted">
+          <Cloud size={36} strokeWidth={1.5} />
           <div className="text-center">
-            <p className="text-lg font-medium">No drives configured</p>
-            <p className="mt-1 text-sm">
+            <p className="text-sm font-medium">No drives configured</p>
+            <p className="mt-1 text-xs">
               Add drive mappings to{" "}
               <code className="rounded bg-bg-elevated px-1.5 py-0.5 text-xs">
                 sync-config.json
@@ -224,6 +216,6 @@ export default function CloudSyncPage() {
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }

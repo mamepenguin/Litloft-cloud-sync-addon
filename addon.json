@@ -2,12 +2,6 @@
   "name": "cloud-sync",
   "version": "1.0.0",
   "description": "Backup drives to cloud storage via rclone",
-  "sidebar": {
-    "label": "Cloud Sync",
-    "icon": "cloud",
-    "href": "/addons/cloud-sync"
-  },
-  "route": "/addons/cloud-sync",
   "backend": {
     "requirements": "backend/requirements.txt"
   }
