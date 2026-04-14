@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 ADDON_META = {
     "label": "Cloud Sync",
     "icon": "cloud",
+    "scope": "global",
     "href": "/addons/cloud-sync",
 }
 
