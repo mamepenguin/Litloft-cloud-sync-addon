@@ -1,6 +1,6 @@
 # Cloud Sync
 
-A [HomeVault](https://github.com/mamepenguin/video-share) addon that backs up your drives to cloud storage using [rclone](https://rclone.org/).
+A [Litloft](https://github.com/mamepenguin/video-share) addon that backs up your drives to cloud storage using [rclone](https://rclone.org/).
 
 Supports any rclone-compatible provider: Google Drive, AWS S3, Backblaze B2, Dropbox, OneDrive, SFTP, and [many more](https://rclone.org/overview/).
 
@@ -19,7 +19,7 @@ Supports any rclone-compatible provider: Google Drive, AWS S3, Backblaze B2, Dro
 
 ## Requirements
 
-- [HomeVault](https://github.com/mamepenguin/video-share)
+- [Litloft](https://github.com/mamepenguin/video-share)
 - rclone configured on the host with at least one remote (`rclone config`)
 
 ## Installation
@@ -27,7 +27,7 @@ Supports any rclone-compatible provider: Google Drive, AWS S3, Backblaze B2, Dro
 ### 1. Place the addon
 
 ```bash
-# From the HomeVault root directory
+# From the Litloft root directory
 git clone https://github.com/mamepenguin/cloud-sync.git addons/cloud-sync
 ```
 
@@ -45,7 +45,7 @@ Edit `sync-config.json` with your drive-to-remote mappings:
   "mappings": [
     {
       "drive": "Family Videos",
-      "remote": "gdrive:homevault/family"
+      "remote": "gdrive:litloft/family"
     },
     {
       "drive": "TV Shows",
@@ -57,7 +57,7 @@ Edit `sync-config.json` with your drive-to-remote mappings:
 
 ### 3. Docker (recommended)
 
-The HomeVault Dockerfiles automatically discover addons placed in `addons/`. rclone installation, Python dependencies, frontend source copying, and page route generation are all handled during the build -- no manual setup required.
+The Litloft Dockerfiles automatically discover addons placed in `addons/`. rclone installation, Python dependencies, frontend source copying, and page route generation are all handled during the build -- no manual setup required.
 
 Mount the rclone config and sync config into the container via `docker-compose.override.yml`:
 
@@ -82,7 +82,7 @@ The addon will be available at `/addons/cloud-sync`.
 Run the setup script to create symlinks for backend and frontend:
 
 ```bash
-# From the HomeVault root directory
+# From the Litloft root directory
 ./setup-addons.sh
 ```
 
@@ -154,7 +154,7 @@ Make sure `install.sh` ran during the Docker build and rclone is in the containe
 
 ### Drive not found (404)
 
-The `drive` value in `sync-config.json` must exactly match a drive name defined in HomeVault's `drives.json`.
+The `drive` value in `sync-config.json` must exactly match a drive name defined in Litloft's `drives.json`.
 
 ## License
 

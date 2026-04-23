@@ -3,7 +3,7 @@
   "mappings": [
     {
       "drive": "家族ビデオ",
-      "remote": "gdrive:homevault/family"
+      "remote": "gdrive:litloft/family"
     },
     {
       "drive": "テレビ番組",
