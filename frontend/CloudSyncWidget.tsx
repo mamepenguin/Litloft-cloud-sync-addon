@@ -197,7 +197,7 @@ export default function CloudSyncWidget() {
             <p className="text-sm font-medium">No drives configured</p>
             <p className="mt-1 text-xs">
               Add drive mappings to{" "}
-              <code className="rounded bg-bg-elevated px-1.5 py-0.5 text-xs">
+              <code className="rounded-lg bg-bg-elevated px-1.5 py-0.5 text-xs">
                 sync-config.json
               </code>{" "}
               to get started.

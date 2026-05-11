@@ -160,7 +160,7 @@ export default function SyncDriveCard({
               )}
               <span>{formatElapsed(drive.last_result.elapsed_seconds)}</span>
               {drive.last_result.errors > 0 && (
-                <span className="text-red-400">
+                <span className="text-danger">
                   {drive.last_result.errors} errors
                 </span>
               )}
@@ -234,7 +234,7 @@ export default function SyncDriveCard({
           <button
             onClick={handleCancel}
             disabled={actionLoading}
-            className="flex items-center gap-1.5 rounded-lg border border-red-400/30 px-4 py-2 text-sm text-red-400 transition-colors hover:bg-red-400/10 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg border border-danger/30 px-4 py-2 text-sm text-danger transition-colors hover:bg-danger/10 disabled:opacity-50"
           >
             {actionLoading ? (
               <Loader2 size={14} className="animate-spin" />
@@ -250,10 +250,10 @@ export default function SyncDriveCard({
       {effectiveStatus === "error" && (
         <div className="mt-4 space-y-3">
           {drive.error_message && (
-            <div className={`rounded-md p-3 text-xs ${
+            <div className={`rounded-lg p-3 text-xs ${
               drive.error_message.includes("Authentication expired")
-                ? "bg-amber-400/10 text-amber-400"
-                : "bg-red-400/10 text-red-400"
+                ? "bg-accent-amber/10 text-accent-amber"
+                : "bg-danger/10 text-danger"
             }`}>
               {drive.error_message.includes("Authentication expired") && (
                 <div className="mb-1.5 flex items-center gap-1.5 font-semibold">
@@ -292,7 +292,7 @@ export default function SyncDriveCard({
       {/* Log Panel */}
       {logOpen && (
         <div className="mt-4">
-          <pre className="max-h-64 overflow-auto rounded-md bg-bg-primary p-3 text-xs text-text-muted">
+          <pre className="max-h-64 overflow-auto rounded-lg bg-bg-primary p-3 text-xs text-text-muted">
             {logContent || "No log available."}
           </pre>
         </div>
@@ -305,7 +305,7 @@ function StatusBadge({ status }: { status: SyncDriveStatus["status"] }) {
   switch (status) {
     case "idle":
       return (
-        <span className="flex items-center gap-1 rounded-full bg-green-400/10 px-2.5 py-1 text-xs text-green-400">
+        <span className="flex items-center gap-1 rounded-full bg-accent-teal/10 px-2.5 py-1 text-xs text-accent-teal">
           <CheckCircle size={12} />
           Idle
         </span>
@@ -319,7 +319,7 @@ function StatusBadge({ status }: { status: SyncDriveStatus["status"] }) {
       );
     case "error":
       return (
-        <span className="flex items-center gap-1 rounded-full bg-red-400/10 px-2.5 py-1 text-xs text-red-400">
+        <span className="flex items-center gap-1 rounded-full bg-danger/10 px-2.5 py-1 text-xs text-danger">
           <AlertTriangle size={12} />
           Error
         </span>
