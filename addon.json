@@ -1,8 +1,0 @@
-{
-  "name": "cloud-sync",
-  "version": "1.0.0",
-  "description": "Backup drives to cloud storage via rclone",
-  "backend": {
-    "requirements": "backend/requirements.txt"
-  }
-}

@@ -11,6 +11,8 @@ from .service import sync_manager
 logger = logging.getLogger(__name__)
 
 ADDON_META = {
+    "label": "Cloud Sync",
+    "description": "Back up drives to cloud storage via rclone.",
     "scope": "global",
     "slots": {
         "dashboard-widgets": [
