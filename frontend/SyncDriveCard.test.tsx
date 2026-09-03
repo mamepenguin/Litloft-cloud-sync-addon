@@ -80,3 +80,48 @@ describe("SyncDriveCard error panel", () => {
     expect(screen.queryByText("Re-authentication Required")).toBeNull();
   });
 });
+
+// The relative labels were translated but the absolute fallback past a week
+// was not: it hand-built `${month}/${day}`, which reads month-first in en and
+// day-first elsewhere with nothing to say which was meant (ADM-8 follow-up).
+describe("SyncDriveCard absolute timestamps", () => {
+  function syncedAt(iso: string): SyncDriveStatus {
+    return {
+      drive: "photos",
+      remote: "gdrive:photos",
+      status: "idle",
+      last_synced_at: iso,
+      last_result: null,
+      progress: null,
+    };
+  }
+
+  it("formats a date older than a week through the locale", () => {
+    const old = new Date(Date.now() - 40 * 86400000);
+    renderCard(syncedAt(old.toISOString()));
+
+    const expected = new Intl.DateTimeFormat("en", {
+      month: "numeric",
+      day: "numeric",
+    }).format(old);
+    expect(screen.getByText(new RegExp(expected.replace("/", "\\/")))).toBeInTheDocument();
+  });
+
+  it("includes the year only when it is not the current one", () => {
+    const longAgo = new Date("2019-03-04T10:00:00Z");
+    renderCard(syncedAt(longAgo.toISOString()));
+
+    const expected = new Intl.DateTimeFormat("en", {
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    }).format(longAgo);
+    expect(screen.getByText(new RegExp(expected.replace(/\//g, "\\/")))).toBeInTheDocument();
+  });
+
+  it("still uses the relative wording inside the week", () => {
+    renderCard(syncedAt(new Date(Date.now() - 2 * 86400000).toISOString()));
+
+    expect(screen.getByText(/2d ago/)).toBeInTheDocument();
+  });
+});
