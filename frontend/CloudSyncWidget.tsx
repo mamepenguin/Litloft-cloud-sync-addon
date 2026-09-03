@@ -2,7 +2,7 @@
 
 import { useCallback, useContext, useEffect, useState } from "react";
 import { Clock, Cloud } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { WebSocketContext } from "@/components/WebSocketProvider";
 import { fetchSyncStatus, type SyncDriveStatus, type SyncProgress } from "./api";
 import SyncDriveCard from "./SyncDriveCard";
@@ -27,7 +27,7 @@ function describeCron(t: Translate, expr: string): string {
   return expr;
 }
 
-function formatNextSync(t: Translate, isoString: string): string {
+function formatNextSync(t: Translate, locale: string, isoString: string): string {
   const date = new Date(isoString);
   const now = new Date();
   const diffMs = date.getTime() - now.getTime();
@@ -36,9 +36,15 @@ function formatNextSync(t: Translate, isoString: string): string {
   if (diffMin < 60) return t("syncInMinutes", { count: diffMin });
   const diffHour = Math.round(diffMs / 3600000);
   if (diffHour < 24) return t("syncInHours", { count: diffHour });
-  const h = String(date.getHours()).padStart(2, "0");
-  const m = String(date.getMinutes()).padStart(2, "0");
-  return `${date.getMonth() + 1}/${date.getDate()} ${h}:${m}`;
+  // Beyond a day out, an absolute date. Ordering is the locale's to decide —
+  // `${month}/${day}` reads as May 6th to a Japanese reader and June 5th to an
+  // American one, and neither is told which was meant.
+  return new Intl.DateTimeFormat(locale, {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 interface SyncProgressEvent {
@@ -70,6 +76,7 @@ interface SyncErrorEvent {
 
 export default function CloudSyncWidget() {
   const t = useTranslations("cloudSync");
+  const locale = useLocale();
   const { lastEvent } = useContext(WebSocketContext);
   const [drives, setDrives] = useState<SyncDriveStatus[]>([]);
   const [schedule, setSchedule] = useState<string | null>(null);
@@ -190,7 +197,7 @@ export default function CloudSyncWidget() {
             <span>{describeCron(t, schedule)}</span>
             {nextSyncAt && (
               <span className="text-text-muted/60">
-                &middot; {t("nextSync", { when: formatNextSync(t, nextSyncAt) })}
+                &middot; {t("nextSync", { when: formatNextSync(t, locale, nextSyncAt) })}
               </span>
             )}
           </div>

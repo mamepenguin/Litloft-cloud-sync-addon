@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   Cloud,
   RefreshCw,
@@ -42,7 +42,7 @@ function formatSpeed(bytesPerSec: number): string {
 
 type Translate = ReturnType<typeof useTranslations>;
 
-function formatRelativeTime(t: Translate, isoString: string): string {
+function formatRelativeTime(t: Translate, locale: string, isoString: string): string {
   const date = new Date(isoString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -55,10 +55,14 @@ function formatRelativeTime(t: Translate, isoString: string): string {
   if (diffHour < 24) return t("hoursAgo", { count: diffHour });
   if (diffDay < 7) return t("daysAgo", { count: diffDay });
 
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return y === now.getFullYear() ? `${m}/${d}` : `${y}/${m}/${d}`;
+  // Past a week, an absolute date, with the year only when it is not this one.
+  // Ordering is the locale's to decide: `${m}/${d}` is read month-first in en
+  // and day-first in much of Europe, with nothing to say which was meant.
+  return new Intl.DateTimeFormat(locale, {
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).format(date);
 }
 
 function ProgressBar({ percent }: { percent: number }) {
@@ -78,6 +82,7 @@ export default function SyncDriveCard({
   onSyncStarted,
 }: SyncDriveCardProps) {
   const t = useTranslations("cloudSync");
+  const locale = useLocale();
   const [actionLoading, setActionLoading] = useState(false);
   const [logContent, setLogContent] = useState<string | null>(null);
   const [logLoading, setLogLoading] = useState(false);
@@ -174,7 +179,7 @@ export default function SyncDriveCard({
           )}
           {drive.last_synced_at && (
             <p className="text-xs text-text-muted">
-              {t("lastSynced", { when: formatRelativeTime(t, drive.last_synced_at) })}
+              {t("lastSynced", { when: formatRelativeTime(t, locale, drive.last_synced_at) })}
             </p>
           )}
           <div className="flex gap-2">
