@@ -1,0 +1,28 @@
+{
+  "cloudSync": {
+    "title": "Cloud Sync",
+    "loading": "Loading...",
+    "noDrivesTitle": "No drives configured",
+    "noDrivesDescription": "Add drive mappings to <code>sync-config.json</code> to get started.",
+    "nextSync": "Next {when}",
+    "everyHours": "Every {count, plural, one {# hour} other {# hours}}",
+    "everyMinutes": "Every {count, plural, one {# minute} other {# minutes}}",
+    "dailyAt": "Daily at {time}",
+    "syncShortly": "shortly",
+    "syncInMinutes": "in {count}min",
+    "syncInHours": "in {count}h",
+    "alreadyUpToDate": "Already up to date",
+    "startingSync": "Starting sync...",
+    "statusIdle": "Idle",
+    "statusSyncing": "Syncing",
+    "statusError": "Error",
+    "logLoadFailed": "Failed to load log.",
+    "logEmpty": "No log available.",
+    "reauthRequired": "Re-authentication Required",
+    "justNow": "just now",
+    "minutesAgo": "{count}min ago",
+    "hoursAgo": "{count}h ago",
+    "daysAgo": "{count}d ago",
+    "lastSynced": "Last synced: {when}"
+  }
+}

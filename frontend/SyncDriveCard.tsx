@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { useTranslations } from "next-intl";
 import {
   Cloud,
   RefreshCw,
@@ -39,7 +40,9 @@ function formatSpeed(bytesPerSec: number): string {
   return `${formatFileSize(bytesPerSec)}/s`;
 }
 
-function formatRelativeTime(isoString: string): string {
+type Translate = ReturnType<typeof useTranslations>;
+
+function formatRelativeTime(t: Translate, isoString: string): string {
   const date = new Date(isoString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -47,10 +50,10 @@ function formatRelativeTime(isoString: string): string {
   const diffHour = Math.floor(diffMs / 3600000);
   const diffDay = Math.floor(diffMs / 86400000);
 
-  if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}min ago`;
-  if (diffHour < 24) return `${diffHour}h ago`;
-  if (diffDay < 7) return `${diffDay}d ago`;
+  if (diffMin < 1) return t("justNow");
+  if (diffMin < 60) return t("minutesAgo", { count: diffMin });
+  if (diffHour < 24) return t("hoursAgo", { count: diffHour });
+  if (diffDay < 7) return t("daysAgo", { count: diffDay });
 
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -74,6 +77,7 @@ export default function SyncDriveCard({
   progress,
   onSyncStarted,
 }: SyncDriveCardProps) {
+  const t = useTranslations("cloudSync");
   const [actionLoading, setActionLoading] = useState(false);
   const [logContent, setLogContent] = useState<string | null>(null);
   const [logLoading, setLogLoading] = useState(false);
@@ -116,7 +120,7 @@ export default function SyncDriveCard({
       setLogContent(log);
       setLogOpen(true);
     } catch {
-      setLogContent("Failed to load log.");
+      setLogContent(t("logLoadFailed"));
       setLogOpen(true);
     } finally {
       setLogLoading(false);
@@ -147,7 +151,7 @@ export default function SyncDriveCard({
           {drive.last_result && (
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
               {drive.last_result.transferred_files === 0 ? (
-                <span>Already up to date</span>
+                <span>{t("alreadyUpToDate")}</span>
               ) : (
                 <>
                   <span>
@@ -168,14 +172,14 @@ export default function SyncDriveCard({
           )}
           {drive.last_synced_at && (
             <p className="text-xs text-text-muted">
-              Last synced: {formatRelativeTime(drive.last_synced_at)}
+              {t("lastSynced", { when: formatRelativeTime(t, drive.last_synced_at) })}
             </p>
           )}
           <div className="flex gap-2">
             <button
               onClick={handleStart}
               disabled={actionLoading}
-              className="flex items-center gap-1.5 rounded-lg bg-accent-cta px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-cta/80 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg bg-accent-cta px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-cta/80 disabled:bg-sand disabled:text-warm-silver disabled:cursor-not-allowed"
             >
               {actionLoading ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -228,7 +232,7 @@ export default function SyncDriveCard({
           {!activeProgress && (
             <div className="flex items-center gap-2 text-xs text-text-muted">
               <Loader2 size={14} className="animate-spin" />
-              <span>Starting sync...</span>
+              <span>{t("startingSync")}</span>
             </div>
           )}
           <button
@@ -258,7 +262,7 @@ export default function SyncDriveCard({
               {drive.error_message.includes("Authentication expired") && (
                 <div className="mb-1.5 flex items-center gap-1.5 font-semibold">
                   <AlertTriangle size={14} />
-                  Re-authentication Required
+                  {t("reauthRequired")}
                 </div>
               )}
               {drive.error_message}
@@ -268,7 +272,7 @@ export default function SyncDriveCard({
             <button
               onClick={handleStart}
               disabled={actionLoading}
-              className="flex items-center gap-1.5 rounded-lg bg-accent-cta px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-cta/80 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg bg-accent-cta px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-cta/80 disabled:bg-sand disabled:text-warm-silver disabled:cursor-not-allowed"
             >
               {actionLoading ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -293,7 +297,7 @@ export default function SyncDriveCard({
       {logOpen && (
         <div className="mt-4">
           <pre className="max-h-64 overflow-auto rounded-lg bg-bg-primary p-3 text-xs text-text-muted">
-            {logContent || "No log available."}
+            {logContent || t("logEmpty")}
           </pre>
         </div>
       )}
@@ -302,26 +306,27 @@ export default function SyncDriveCard({
 }
 
 function StatusBadge({ status }: { status: SyncDriveStatus["status"] }) {
+  const t = useTranslations("cloudSync");
   switch (status) {
     case "idle":
       return (
         <span className="flex items-center gap-1 rounded-full bg-accent-teal/10 px-2.5 py-1 text-xs text-accent-teal">
           <CheckCircle size={12} />
-          Idle
+          {t("statusIdle")}
         </span>
       );
     case "syncing":
       return (
         <span className="flex items-center gap-1 rounded-full bg-accent-cta/10 px-2.5 py-1 text-xs text-accent-cta">
           <Loader2 size={12} className="animate-spin" />
-          Syncing
+          {t("statusSyncing")}
         </span>
       );
     case "error":
       return (
         <span className="flex items-center gap-1 rounded-full bg-danger/10 px-2.5 py-1 text-xs text-danger">
           <AlertTriangle size={12} />
-          Error
+          {t("statusError")}
         </span>
       );
   }
