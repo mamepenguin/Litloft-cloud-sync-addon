@@ -125,7 +125,7 @@ export default function SyncDriveCard({
     } finally {
       setLogLoading(false);
     }
-  }, [drive.drive, logOpen]);
+  }, [drive.drive, logOpen, t]);
 
   return (
     <div className="rounded-lg border border-bg-border bg-bg-card p-5">
