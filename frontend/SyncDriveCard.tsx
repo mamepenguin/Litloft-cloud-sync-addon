@@ -260,17 +260,25 @@ export default function SyncDriveCard({
         <div className="mt-4 space-y-3">
           {drive.error_message && (
             <div className={`rounded-lg p-3 text-xs ${
-              drive.error_message.includes("Authentication expired")
+              drive.error_kind === "auth_expired"
                 ? "bg-accent-amber/10 text-accent-amber"
                 : "bg-danger/10 text-danger"
             }`}>
-              {drive.error_message.includes("Authentication expired") && (
-                <div className="mb-1.5 flex items-center gap-1.5 font-semibold">
-                  <AlertTriangle size={14} />
-                  {t("reauthRequired")}
-                </div>
+              {drive.error_kind === "auth_expired" ? (
+                <>
+                  <div className="mb-1.5 flex items-center gap-1.5 font-semibold">
+                    <AlertTriangle size={14} />
+                    {t("reauthRequired")}
+                  </div>
+                  <p>{t("reauthInstructions")}</p>
+                  {/* Not in the catalogue: it is a command, not prose. */}
+                  <code className="mt-1 block rounded bg-bg-elevated px-1.5 py-1">
+                    rclone config reconnect &lt;remote&gt;:
+                  </code>
+                </>
+              ) : (
+                drive.error_message
               )}
-              {drive.error_message}
             </div>
           )}
           <div className="flex gap-2">

@@ -31,6 +31,7 @@
     "cancel": "キャンセル",
     "retry": "再試行",
     "transferProgress": "{done}/{total} 件",
-    "eta": "残り {time}"
+    "eta": "残り {time}",
+    "reauthInstructions": "ホストで次のコマンドを実行し、コンテナを再起動してください。"
   }
 }

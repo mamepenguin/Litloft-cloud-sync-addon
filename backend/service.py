@@ -308,6 +308,7 @@ class SyncManager:
                 last_synced_at=now,
                 last_result=result,
                 error_message=error_msg,
+                error_kind=error_kind,
             )
             await manager.broadcast("sync:error", {
                 "drive": drive_name,

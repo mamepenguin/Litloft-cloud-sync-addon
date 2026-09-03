@@ -31,6 +31,7 @@
     "cancel": "Cancel",
     "retry": "Retry",
     "transferProgress": "{done}/{total} files",
-    "eta": "ETA {time}"
+    "eta": "ETA {time}",
+    "reauthInstructions": "Run this on the host, then restart the container."
   }
 }

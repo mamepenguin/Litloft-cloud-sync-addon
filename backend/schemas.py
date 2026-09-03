@@ -45,6 +45,11 @@ class SyncDriveStatus(BaseModel):
     last_result: SyncResult | None = None
     progress: SyncProgress | None = None
     error_message: str | None = None
+    # What went wrong, as a value rather than as prose. The UI needs to tell an
+    # expired token from any other rclone failure so it can offer the recovery
+    # step, and reading that back out of ``error_message`` would tie the check
+    # to the English wording.
+    error_kind: str | None = None
 
 
 class SyncStatusResponse(BaseModel):
