@@ -1,0 +1,32 @@
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y ffmpeg libheif-dev curl && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+
+# Built from the repository root, like every other image here, so the addon
+# and the core `app` package it imports both land in one tree:
+#
+#   docker build -f addons/cloud-sync/Dockerfile.test -t cloud-sync-test .
+#   docker run --rm cloud-sync-test
+COPY backend/requirements-dev.txt backend/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements-dev.txt
+
+# `pytest-asyncio` is not among core's dev requirements; the addon's own
+# entry points are coroutines, so its tests need it.
+COPY addons/cloud-sync/requirements-test.txt ./cloud-sync-requirements-test.txt
+RUN pip install --no-cache-dir -r ./cloud-sync-requirements-test.txt
+
+# Core app sources — this addon runs in-process and imports `app.config`
+# and `app.services.ws` directly.
+COPY backend/app/ ./app/
+
+# The addon, under the path production mounts it at.
+COPY addons/cloud-sync/backend/ ./addons/cloud_sync/
+COPY addons/cloud-sync/backend/requirements.txt ./addons/cloud-sync-requirements.txt
+RUN pip install --no-cache-dir -r ./addons/cloud-sync-requirements.txt
+RUN touch addons/__init__.py
+
+COPY addons/cloud-sync/pytest.ini ./pytest.ini
+COPY addons/cloud-sync/tests/ ./addons/cloud-sync/tests/
+
+CMD ["pytest", "-v", "--tb=short", "addons/cloud-sync/tests/", \
+     "--cov=addons.cloud_sync", "--cov-report=term-missing"]
