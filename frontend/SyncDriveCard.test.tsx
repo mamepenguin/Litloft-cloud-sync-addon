@@ -60,8 +60,8 @@ describe("SyncDriveCard error panel", () => {
   });
 
   it("does not read the kind out of the message text", () => {
-    // A failure whose message merely mentions the phrase is not the auth case;
-    // only the kind decides. This is what the substring test got wrong.
+    // A failure whose message merely mentions the phrase is not the auth case.
+    // Only the kind decides, which is why reading the message cannot.
     renderCard(
       errored({
         error_message: "sync aborted after Authentication expired earlier today",

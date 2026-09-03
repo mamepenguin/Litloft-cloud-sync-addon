@@ -126,17 +126,39 @@ class TestFailuresRaisedOutsideRclone:
 
 
 class TestClassifier:
+    def test_recognises_every_pattern_it_declares(self, manager_under_test):
+        """Reads the table rather than copying it.
+
+        A copied list of patterns cannot fail when one is deleted — it would
+        just stop testing that case. Driving the assertion from the table means
+        removing a pattern removes the behaviour and the test notices.
+        """
+        patterns = manager_under_test._AUTH_ERROR_PATTERNS
+        assert len(patterns) >= 5, "the classifier lost most of its patterns"
+        for pattern in patterns:
+            line = f"2026/09/03 ERROR : {pattern} while syncing".encode()
+            assert manager_under_test._classify_error([line]) == "auth_expired", (
+                f"declared pattern not recognised: {pattern}"
+            )
+
+    # Real rclone output for the credential failures that actually happen. The
+    # table-driven case above cannot notice a pattern being deleted — the entry
+    # disappears from the loop along with the behaviour — so these name the
+    # lines whose classification users depend on, and fail when it is lost.
     @pytest.mark.parametrize(
         "line",
         [
-            b"oauth2: token expired",
-            b"oauth2: cannot fetch token",
-            b"Failed to copy: invalid_grant",
-            b"token has been expired or revoked",
+            b"2026/09/03 12:00:00 ERROR : : error reading source directory: "
+            b"couldn't fetch token: oauth2: token expired and refresh token is not set",
+            b"2026/09/03 12:00:00 ERROR : Failed to copy: googleapi: "
+            b'Error 401: Request had invalid authentication credentials, invalid_grant',
+            b"2026/09/03 12:00:00 ERROR : S3 bucket: "
             b"NoCredentialProviders: no valid providers in chain",
         ],
     )
-    def test_recognises_an_expired_credential(self, manager_under_test, line):
+    def test_recognises_the_credential_failures_seen_in_practice(
+        self, manager_under_test, line
+    ):
         assert manager_under_test._classify_error([line]) == "auth_expired"
 
     def test_leaves_an_ordinary_failure_unclassified(self, manager_under_test):

@@ -19,7 +19,8 @@ RUN pip install --no-cache-dir -r ./cloud-sync-requirements-test.txt
 # and `app.services.ws` directly.
 COPY backend/app/ ./app/
 
-# The addon, under the path production mounts it at.
+# Underscored so it is importable as `addons.cloud_sync`; the production image
+# keeps the hyphenated directory name and reaches it another way.
 COPY addons/cloud-sync/backend/ ./addons/cloud_sync/
 COPY addons/cloud-sync/backend/requirements.txt ./addons/cloud-sync-requirements.txt
 RUN pip install --no-cache-dir -r ./addons/cloud-sync-requirements.txt

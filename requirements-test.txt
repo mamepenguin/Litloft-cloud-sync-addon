@@ -1,3 +1,2 @@
-pytest==8.4.*
+# Beyond core's requirements-dev.txt, which already pins pytest and pytest-cov.
 pytest-asyncio==0.25.*
-pytest-cov==6.2.*
