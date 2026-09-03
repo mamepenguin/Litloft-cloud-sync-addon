@@ -23,6 +23,7 @@ export interface SyncDriveStatus {
   last_result: SyncResult | null;
   progress: SyncProgress | null;
   error_message?: string;
+  error_kind?: string;
 }
 
 export interface SyncStatusResponse {

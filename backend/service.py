@@ -308,10 +308,12 @@ class SyncManager:
                 last_synced_at=now,
                 last_result=result,
                 error_message=error_msg,
+                error_kind=error_kind,
             )
             await manager.broadcast("sync:error", {
                 "drive": drive_name,
                 "message": error_msg,
+                "kind": error_kind,
             })
 
     async def _handle_error(self, drive_name: str, message: str) -> None:
@@ -324,10 +326,12 @@ class SyncManager:
             last_synced_at=current.last_synced_at if current else None,
             last_result=current.last_result if current else None,
             error_message=message,
+            error_kind=None,
         )
         await manager.broadcast("sync:error", {
             "drive": drive_name,
             "message": message,
+            "kind": None,
         })
 
     async def _on_sync_complete(

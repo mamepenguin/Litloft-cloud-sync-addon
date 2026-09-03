@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { useTranslations } from "next-intl";
 import {
   Cloud,
   RefreshCw,
@@ -39,7 +40,9 @@ function formatSpeed(bytesPerSec: number): string {
   return `${formatFileSize(bytesPerSec)}/s`;
 }
 
-function formatRelativeTime(isoString: string): string {
+type Translate = ReturnType<typeof useTranslations>;
+
+function formatRelativeTime(t: Translate, isoString: string): string {
   const date = new Date(isoString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -47,10 +50,10 @@ function formatRelativeTime(isoString: string): string {
   const diffHour = Math.floor(diffMs / 3600000);
   const diffDay = Math.floor(diffMs / 86400000);
 
-  if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}min ago`;
-  if (diffHour < 24) return `${diffHour}h ago`;
-  if (diffDay < 7) return `${diffDay}d ago`;
+  if (diffMin < 1) return t("justNow");
+  if (diffMin < 60) return t("minutesAgo", { count: diffMin });
+  if (diffHour < 24) return t("hoursAgo", { count: diffHour });
+  if (diffDay < 7) return t("daysAgo", { count: diffDay });
 
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -74,6 +77,7 @@ export default function SyncDriveCard({
   progress,
   onSyncStarted,
 }: SyncDriveCardProps) {
+  const t = useTranslations("cloudSync");
   const [actionLoading, setActionLoading] = useState(false);
   const [logContent, setLogContent] = useState<string | null>(null);
   const [logLoading, setLogLoading] = useState(false);
@@ -116,12 +120,12 @@ export default function SyncDriveCard({
       setLogContent(log);
       setLogOpen(true);
     } catch {
-      setLogContent("Failed to load log.");
+      setLogContent(t("logLoadFailed"));
       setLogOpen(true);
     } finally {
       setLogLoading(false);
     }
-  }, [drive.drive, logOpen]);
+  }, [drive.drive, logOpen, t]);
 
   return (
     <div className="rounded-lg border border-bg-border bg-bg-card p-5">
@@ -147,11 +151,13 @@ export default function SyncDriveCard({
           {drive.last_result && (
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
               {drive.last_result.transferred_files === 0 ? (
-                <span>Already up to date</span>
+                <span>{t("alreadyUpToDate")}</span>
               ) : (
                 <>
                   <span>
-                    {drive.last_result.transferred_files} files transferred
+                    {t("filesTransferred", {
+                      count: drive.last_result.transferred_files,
+                    })}
                   </span>
                   <span>
                     {formatFileSize(drive.last_result.transferred_bytes)}
@@ -161,28 +167,28 @@ export default function SyncDriveCard({
               <span>{formatElapsed(drive.last_result.elapsed_seconds)}</span>
               {drive.last_result.errors > 0 && (
                 <span className="text-danger">
-                  {drive.last_result.errors} errors
+                  {t("errorCount", { count: drive.last_result.errors })}
                 </span>
               )}
             </div>
           )}
           {drive.last_synced_at && (
             <p className="text-xs text-text-muted">
-              Last synced: {formatRelativeTime(drive.last_synced_at)}
+              {t("lastSynced", { when: formatRelativeTime(t, drive.last_synced_at) })}
             </p>
           )}
           <div className="flex gap-2">
             <button
               onClick={handleStart}
               disabled={actionLoading}
-              className="flex items-center gap-1.5 rounded-lg bg-accent-cta px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-cta/80 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg bg-accent-cta px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-cta/80 disabled:bg-sand disabled:text-warm-silver disabled:cursor-not-allowed"
             >
               {actionLoading ? (
                 <Loader2 size={14} className="animate-spin" />
               ) : (
                 <RefreshCw size={14} />
               )}
-              Sync Now
+              {t("syncNow")}
             </button>
             <button
               onClick={handleToggleLog}
@@ -190,7 +196,7 @@ export default function SyncDriveCard({
               className="flex items-center gap-1.5 rounded-lg border border-bg-border px-3 py-2 text-sm text-text-muted transition-colors hover:bg-bg-elevated disabled:opacity-50"
             >
               <FileText size={14} />
-              Log
+              {t("viewLog")}
             </button>
           </div>
         </div>
@@ -206,14 +212,17 @@ export default function SyncDriveCard({
                 <span>
                   {activeProgress.percent.toFixed(1)}%
                   {activeProgress.total_transfers > 0 &&
-                    ` (${activeProgress.transfers}/${activeProgress.total_transfers} files)`}
+                    ` (${t("transferProgress", {
+                      done: activeProgress.transfers,
+                      total: activeProgress.total_transfers,
+                    })})`}
                 </span>
                 <span>
                   {[
                     activeProgress.speed > 0 &&
                       formatSpeed(activeProgress.speed),
                     activeProgress.eta > 0 &&
-                      `ETA ${formatEta(activeProgress.eta)}`,
+                      t("eta", { time: formatEta(activeProgress.eta) }),
                   ]
                     .filter(Boolean)
                     .join(" - ")}
@@ -228,7 +237,7 @@ export default function SyncDriveCard({
           {!activeProgress && (
             <div className="flex items-center gap-2 text-xs text-text-muted">
               <Loader2 size={14} className="animate-spin" />
-              <span>Starting sync...</span>
+              <span>{t("startingSync")}</span>
             </div>
           )}
           <button
@@ -241,7 +250,7 @@ export default function SyncDriveCard({
             ) : (
               <XCircle size={14} />
             )}
-            Cancel
+            {t("cancel")}
           </button>
         </div>
       )}
@@ -251,31 +260,39 @@ export default function SyncDriveCard({
         <div className="mt-4 space-y-3">
           {drive.error_message && (
             <div className={`rounded-lg p-3 text-xs ${
-              drive.error_message.includes("Authentication expired")
+              drive.error_kind === "auth_expired"
                 ? "bg-accent-amber/10 text-accent-amber"
                 : "bg-danger/10 text-danger"
             }`}>
-              {drive.error_message.includes("Authentication expired") && (
-                <div className="mb-1.5 flex items-center gap-1.5 font-semibold">
-                  <AlertTriangle size={14} />
-                  Re-authentication Required
-                </div>
+              {drive.error_kind === "auth_expired" ? (
+                <>
+                  <div className="mb-1.5 flex items-center gap-1.5 font-semibold">
+                    <AlertTriangle size={14} />
+                    {t("reauthRequired")}
+                  </div>
+                  <p>{t("reauthInstructions")}</p>
+                  {/* Not in the catalogue: it is a command, not prose. */}
+                  <code className="mt-1 block rounded bg-bg-elevated px-1.5 py-1">
+                    rclone config reconnect &lt;remote&gt;:
+                  </code>
+                </>
+              ) : (
+                drive.error_message
               )}
-              {drive.error_message}
             </div>
           )}
           <div className="flex gap-2">
             <button
               onClick={handleStart}
               disabled={actionLoading}
-              className="flex items-center gap-1.5 rounded-lg bg-accent-cta px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-cta/80 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg bg-accent-cta px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-cta/80 disabled:bg-sand disabled:text-warm-silver disabled:cursor-not-allowed"
             >
               {actionLoading ? (
                 <Loader2 size={14} className="animate-spin" />
               ) : (
                 <RefreshCw size={14} />
               )}
-              Retry
+              {t("retry")}
             </button>
             <button
               onClick={handleToggleLog}
@@ -283,7 +300,7 @@ export default function SyncDriveCard({
               className="flex items-center gap-1.5 rounded-lg border border-bg-border px-3 py-2 text-sm text-text-muted transition-colors hover:bg-bg-elevated disabled:opacity-50"
             >
               <FileText size={14} />
-              Log
+              {t("viewLog")}
             </button>
           </div>
         </div>
@@ -293,7 +310,7 @@ export default function SyncDriveCard({
       {logOpen && (
         <div className="mt-4">
           <pre className="max-h-64 overflow-auto rounded-lg bg-bg-primary p-3 text-xs text-text-muted">
-            {logContent || "No log available."}
+            {logContent || t("logEmpty")}
           </pre>
         </div>
       )}
@@ -302,26 +319,27 @@ export default function SyncDriveCard({
 }
 
 function StatusBadge({ status }: { status: SyncDriveStatus["status"] }) {
+  const t = useTranslations("cloudSync");
   switch (status) {
     case "idle":
       return (
         <span className="flex items-center gap-1 rounded-full bg-accent-teal/10 px-2.5 py-1 text-xs text-accent-teal">
           <CheckCircle size={12} />
-          Idle
+          {t("statusIdle")}
         </span>
       );
     case "syncing":
       return (
         <span className="flex items-center gap-1 rounded-full bg-accent-cta/10 px-2.5 py-1 text-xs text-accent-cta">
           <Loader2 size={12} className="animate-spin" />
-          Syncing
+          {t("statusSyncing")}
         </span>
       );
     case "error":
       return (
         <span className="flex items-center gap-1 rounded-full bg-danger/10 px-2.5 py-1 text-xs text-danger">
           <AlertTriangle size={12} />
-          Error
+          {t("statusError")}
         </span>
       );
   }
