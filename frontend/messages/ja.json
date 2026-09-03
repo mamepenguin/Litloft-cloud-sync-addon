@@ -23,6 +23,14 @@
     "minutesAgo": "{count} 分前",
     "hoursAgo": "{count} 時間前",
     "daysAgo": "{count} 日前",
-    "lastSynced": "最終同期: {when}"
+    "lastSynced": "最終同期: {when}",
+    "filesTransferred": "{count} 件を転送",
+    "errorCount": "エラー {count} 件",
+    "syncNow": "今すぐ同期",
+    "viewLog": "ログ",
+    "cancel": "キャンセル",
+    "retry": "再試行",
+    "transferProgress": "{done}/{total} 件",
+    "eta": "残り {time}"
   }
 }

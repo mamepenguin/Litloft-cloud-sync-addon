@@ -23,6 +23,14 @@
     "minutesAgo": "{count}min ago",
     "hoursAgo": "{count}h ago",
     "daysAgo": "{count}d ago",
-    "lastSynced": "Last synced: {when}"
+    "lastSynced": "Last synced: {when}",
+    "filesTransferred": "{count, plural, one {# file transferred} other {# files transferred}}",
+    "errorCount": "{count, plural, one {# error} other {# errors}}",
+    "syncNow": "Sync Now",
+    "viewLog": "Log",
+    "cancel": "Cancel",
+    "retry": "Retry",
+    "transferProgress": "{done}/{total} files",
+    "eta": "ETA {time}"
   }
 }

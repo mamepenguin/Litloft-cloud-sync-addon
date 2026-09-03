@@ -155,7 +155,9 @@ export default function SyncDriveCard({
               ) : (
                 <>
                   <span>
-                    {drive.last_result.transferred_files} files transferred
+                    {t("filesTransferred", {
+                      count: drive.last_result.transferred_files,
+                    })}
                   </span>
                   <span>
                     {formatFileSize(drive.last_result.transferred_bytes)}
@@ -165,7 +167,7 @@ export default function SyncDriveCard({
               <span>{formatElapsed(drive.last_result.elapsed_seconds)}</span>
               {drive.last_result.errors > 0 && (
                 <span className="text-danger">
-                  {drive.last_result.errors} errors
+                  {t("errorCount", { count: drive.last_result.errors })}
                 </span>
               )}
             </div>
@@ -186,7 +188,7 @@ export default function SyncDriveCard({
               ) : (
                 <RefreshCw size={14} />
               )}
-              Sync Now
+              {t("syncNow")}
             </button>
             <button
               onClick={handleToggleLog}
@@ -194,7 +196,7 @@ export default function SyncDriveCard({
               className="flex items-center gap-1.5 rounded-lg border border-bg-border px-3 py-2 text-sm text-text-muted transition-colors hover:bg-bg-elevated disabled:opacity-50"
             >
               <FileText size={14} />
-              Log
+              {t("viewLog")}
             </button>
           </div>
         </div>
@@ -210,14 +212,17 @@ export default function SyncDriveCard({
                 <span>
                   {activeProgress.percent.toFixed(1)}%
                   {activeProgress.total_transfers > 0 &&
-                    ` (${activeProgress.transfers}/${activeProgress.total_transfers} files)`}
+                    ` (${t("transferProgress", {
+                      done: activeProgress.transfers,
+                      total: activeProgress.total_transfers,
+                    })})`}
                 </span>
                 <span>
                   {[
                     activeProgress.speed > 0 &&
                       formatSpeed(activeProgress.speed),
                     activeProgress.eta > 0 &&
-                      `ETA ${formatEta(activeProgress.eta)}`,
+                      t("eta", { time: formatEta(activeProgress.eta) }),
                   ]
                     .filter(Boolean)
                     .join(" - ")}
@@ -245,7 +250,7 @@ export default function SyncDriveCard({
             ) : (
               <XCircle size={14} />
             )}
-            Cancel
+            {t("cancel")}
           </button>
         </div>
       )}
@@ -279,7 +284,7 @@ export default function SyncDriveCard({
               ) : (
                 <RefreshCw size={14} />
               )}
-              Retry
+              {t("retry")}
             </button>
             <button
               onClick={handleToggleLog}
@@ -287,7 +292,7 @@ export default function SyncDriveCard({
               className="flex items-center gap-1.5 rounded-lg border border-bg-border px-3 py-2 text-sm text-text-muted transition-colors hover:bg-bg-elevated disabled:opacity-50"
             >
               <FileText size={14} />
-              Log
+              {t("viewLog")}
             </button>
           </div>
         </div>
