@@ -63,6 +63,9 @@ interface SyncCompleteEvent {
 interface SyncErrorEvent {
   drive: string;
   message: string;
+  // Absent on an event from an older backend; assigning it unconditionally
+  // below is what stops a previous failure's kind from surviving into this one.
+  kind?: string | null;
 }
 
 export default function CloudSyncWidget() {
@@ -140,6 +143,7 @@ export default function CloudSyncWidget() {
                     elapsed_seconds: d.elapsed_seconds,
                   },
                   error_message: undefined,
+                  error_kind: undefined,
                 }
               : drive,
           ),
@@ -160,6 +164,7 @@ export default function CloudSyncWidget() {
                   ...drive,
                   status: "error" as const,
                   error_message: d.message,
+                  error_kind: d.kind ?? undefined,
                 }
               : drive,
           ),
