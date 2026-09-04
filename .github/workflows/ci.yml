@@ -20,12 +20,17 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Nothing here writes to the repository; the cross-repository checkouts read
+# public repositories only.
+permissions:
+  contents: read
+
 jobs:
   backend:
     # This addon runs in the core process: Dockerfile.test COPYs backend/app/
-    # and the addon imports app.config and app.services.ws directly. So its
-    # image cannot be built from this checkout alone — it needs a core tree with
-    # this commit sitting at addons/cloud-sync.
+    # and the addon imports app.auth, app.config and app.services.ws directly.
+    # So its image cannot be built from this checkout alone — it needs a core
+    # tree with this commit sitting at addons/cloud-sync.
     #
     # The mirror image of this job also runs in core's own CI, because a change
     # to core's app package is the other way this pairing breaks.
