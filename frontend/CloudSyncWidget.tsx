@@ -188,7 +188,7 @@ export default function CloudSyncWidget() {
   return (
     <section>
       <div className="mb-3 flex items-center justify-between gap-4">
-        <h2 className="text-sm font-semibold uppercase text-text-muted">
+        <h2 className="text-sm font-semibold text-text-muted">
           {t("title")}
         </h2>
         {schedule && (
