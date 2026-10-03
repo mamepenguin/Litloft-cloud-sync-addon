@@ -18,7 +18,7 @@ export interface SyncResult {
 export interface SyncDriveStatus {
   drive: string;
   remote: string;
-  status: "idle" | "syncing" | "error";
+  status: "idle" | "syncing" | "error" | "disabled";
   last_synced_at: string | null;
   last_result: SyncResult | null;
   progress: SyncProgress | null;

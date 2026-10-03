@@ -81,6 +81,30 @@ describe("SyncDriveCard error panel", () => {
   });
 });
 
+describe("SyncDriveCard states the backend now reports", () => {
+  it("explains a drive that the policy turned off, and offers nothing to press", () => {
+    renderCard(errored({ status: "disabled" }));
+
+    expect(screen.getByText("Off")).toBeInTheDocument();
+    expect(screen.getByText(/turned off for this drive/)).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it.each([
+    ["source_empty", "Drive folder is missing or empty", /Check that the drive is mounted/],
+    ["delete_limit", "Too many deletions", /raise max_delete in sync-config\.json/],
+  ])("gives %s its own title and remedy in place of the raw message", (kind, title, remedy) => {
+    renderCard(
+      errored({ error_kind: kind, error_message: "raw backend text" }),
+    );
+
+    expect(screen.getByText(title)).toBeInTheDocument();
+    expect(screen.getByText(remedy)).toBeInTheDocument();
+    expect(screen.queryByText("raw backend text")).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+});
+
 // The relative labels were translated but the absolute fallback past a week
 // was not: it hand-built `${month}/${day}`, which reads month-first in en and
 // day-first elsewhere with nothing to say which was meant (ADM-8 follow-up).

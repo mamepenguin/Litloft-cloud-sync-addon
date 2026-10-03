@@ -32,6 +32,12 @@
     "retry": "再試行",
     "transferProgress": "{done}/{total} 件",
     "eta": "残り {time}",
-    "reauthInstructions": "ホストで次のコマンドを実行し、コンテナを再起動してください。"
+    "reauthInstructions": "ホストで次のコマンドを実行し、コンテナを再起動してください。",
+    "statusDisabled": "オフ",
+    "disabledReason": "このドライブはアドオンポリシーでクラウド同期がオフになっているため、何もアップロードされません。",
+    "sourceEmptyTitle": "ドライブのフォルダがないか、空です",
+    "sourceEmptyInstructions": "何も同期していません。ドライブがマウントされているか確認して、もう一度試してください。",
+    "deleteLimitTitle": "削除が多すぎます",
+    "deleteLimitInstructions": "リモートから削除する予定のファイルが max_delete を超えたため、同期を止めました。ドライブがマウントされているか確認してください。削除が意図したものなら、sync-config.json の max_delete を上げて、もう一度実行してください。"
   }
 }
