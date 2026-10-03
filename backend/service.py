@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 from datetime import UTC, datetime
@@ -24,6 +25,14 @@ logger = logging.getLogger(__name__)
 _RESOLVED_DIR = Path(__file__).resolve().parent
 LOG_DIR = config.DATA_DIR / "cloud-sync-logs"
 MAX_LOG_SIZE = 1_048_576  # 1MB
+
+# The key under drives.json "addons", and the name the registry knows this
+# addon by: the checkout directory, hyphen included.
+ADDON_NAME = "cloud-sync"
+
+
+class PolicyBlocked(Exception):
+    """The drive's addon policy is off, or could not be read."""
 
 
 class SyncManager:
@@ -80,6 +89,33 @@ class SyncManager:
             )
         return self._status[drive_name]
 
+    @staticmethod
+    def _policy_allows(drive_name: str) -> bool:
+        """False when the drive's policy is off or cannot be read.
+
+        Nothing here has a request in front of it to fall back on, so a lookup
+        that fails must not be read as "on".
+        """
+        try:
+            return config.is_addon_feature_enabled(drive_name, ADDON_NAME, "index")
+        except Exception:
+            logger.warning(
+                "Could not read the addon policy for %s; not syncing it",
+                drive_name,
+                exc_info=True,
+            )
+            return False
+
+    @staticmethod
+    def _source_usable(path: Path) -> bool:
+        # An unmounted drive leaves an empty directory behind, and rclone sync
+        # from an empty source empties the remote.
+        try:
+            with os.scandir(path) as entries:
+                return next(entries, None) is not None
+        except OSError:
+            return False
+
     async def start_sync(self, drive_name: str) -> None:
         mapping = self._get_mapping(drive_name)
         if mapping is None:
@@ -89,6 +125,9 @@ class SyncManager:
             drive_path = config.get_drive_path(drive_name)
         except ValueError:
             raise ValueError(f"Drive not found: {drive_name}")
+
+        if not self._policy_allows(drive_name):
+            raise PolicyBlocked(f"Cloud sync is off for drive: {drive_name}")
 
         if drive_name in self._processes:
             raise RuntimeError(f"Sync already in progress for: {drive_name}")
@@ -124,10 +163,20 @@ class SyncManager:
         start_time = time.monotonic()
 
         try:
+            if not await asyncio.to_thread(self._source_usable, drive_path):
+                await self._handle_error(
+                    drive_name,
+                    "The drive folder is missing or empty, so nothing was synced. "
+                    "Check that the drive is mounted.",
+                    kind="source_empty",
+                )
+                return
+
             proc = await asyncio.create_subprocess_exec(
                 "rclone", "sync",
                 str(drive_path),
                 remote,
+                "--max-delete", str(self._load_config().max_delete),
                 "--stats", "1s",
                 "--stats-log-level", "NOTICE",
                 "--use-json-log",
@@ -254,11 +303,17 @@ class SyncManager:
         "AccessDenied",
     )
 
+    # rclone exits 7 for this, as it does for any fatal error, so the exit
+    # code cannot tell it apart; the error line is the only marker.
+    _DELETE_LIMIT_PATTERN = "--max-delete threshold reached"
+
     @classmethod
     def _classify_error(cls, log_lines: list[bytes]) -> str | None:
-        """Detect auth errors from rclone log output."""
-        for raw_line in log_lines:
-            line = raw_line.decode("utf-8", errors="replace")
+        """Classify a failed run from rclone's log output."""
+        lines = [raw.decode("utf-8", errors="replace") for raw in log_lines]
+        if any(cls._DELETE_LIMIT_PATTERN in line for line in lines):
+            return "delete_limit"
+        for line in lines:
             for pattern in cls._AUTH_ERROR_PATTERNS:
                 if pattern in line:
                     return "auth_expired"
@@ -299,6 +354,12 @@ class SyncManager:
                     "Run 'rclone config reconnect <remote>:' on the host "
                     "and restart the container."
                 )
+            elif error_kind == "delete_limit":
+                error_msg = (
+                    "Stopped: the sync would delete more files than max_delete "
+                    "allows. Check that the drive is mounted, then raise "
+                    "max_delete in sync-config.json if the deletions are expected."
+                )
             else:
                 error_msg = f"rclone exited with code {returncode}"
             self._status[drive_name] = SyncDriveStatus(
@@ -316,7 +377,9 @@ class SyncManager:
                 "kind": error_kind,
             })
 
-    async def _handle_error(self, drive_name: str, message: str) -> None:
+    async def _handle_error(
+        self, drive_name: str, message: str, kind: str | None = None
+    ) -> None:
         current = self._status.get(drive_name)
         remote = current.remote if current else ""
         self._status[drive_name] = SyncDriveStatus(
@@ -326,12 +389,12 @@ class SyncManager:
             last_synced_at=current.last_synced_at if current else None,
             last_result=current.last_result if current else None,
             error_message=message,
-            error_kind=None,
+            error_kind=kind,
         )
         await manager.broadcast("sync:error", {
             "drive": drive_name,
             "message": message,
-            "kind": None,
+            "kind": kind,
         })
 
     async def _on_sync_complete(
@@ -359,7 +422,15 @@ class SyncManager:
         drives: list[SyncDriveStatus] = []
         for mapping in cfg.mappings:
             status = self._status.get(mapping.drive)
-            if status is not None:
+            if not self._policy_allows(mapping.drive):
+                drives.append(SyncDriveStatus(
+                    drive=mapping.drive,
+                    remote=mapping.remote,
+                    status="disabled",
+                    last_synced_at=status.last_synced_at if status else None,
+                    last_result=status.last_result if status else None,
+                ))
+            elif status is not None:
                 drives.append(status)
             else:
                 drives.append(SyncDriveStatus(
@@ -448,6 +519,8 @@ class SyncManager:
             try:
                 await self.start_sync(drive_name)
                 logger.info("Scheduled sync started for %s", drive_name)
+            except PolicyBlocked:
+                logger.info("Skipping scheduled sync for %s (policy off)", drive_name)
             except (ValueError, RuntimeError) as exc:
                 logger.warning(
                     "Scheduled sync failed to start for %s: %s",
