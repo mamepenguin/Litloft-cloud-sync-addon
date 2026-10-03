@@ -6,7 +6,12 @@ import asyncio
 import pytest
 
 from addons.cloud_sync import service
-from addons.cloud_sync.schemas import SyncConfig, SyncDriveStatus, SyncMapping
+from addons.cloud_sync.schemas import (
+    SyncConfig,
+    SyncDriveStatus,
+    SyncMapping,
+    SyncResult,
+)
 from addons.cloud_sync.service import PolicyBlocked
 
 LIMIT_LINE = (
@@ -139,13 +144,20 @@ async def test_the_policy_asked_about_is_the_umbrella_feature_of_this_addon(worl
 def test_status_reports_a_blocked_drive_as_disabled_without_storing_it(world, policy):
     world.add_drive("Photos", policy=policy)
     world.manager._status["Photos"] = SyncDriveStatus(
-        drive="Photos", remote="r:Photos", status="error", error_kind="auth_expired"
+        drive="Photos",
+        remote="r:Photos",
+        status="error",
+        error_kind="auth_expired",
+        last_synced_at="2026-01-01T00:00:00+00:00",
+        last_result=SyncResult(transferred_files=3),
     )
 
     (drive,) = world.manager.get_status().drives
 
     assert drive.status == "disabled"
     assert drive.error_kind is None
+    assert drive.last_synced_at is None
+    assert drive.last_result is None
     assert world.manager._status["Photos"].status == "error"
 
 
@@ -159,7 +171,8 @@ def test_status_leaves_an_enabled_drive_as_it_was(world):
 
 async def test_a_drive_missing_from_the_config_is_never_synced(world):
     world.add_drive("Photos")
-    world.mapped.clear()
+    world.add_drive("Movies")
+    world.mapped.remove("Photos")
 
     with pytest.raises(ValueError):
         await world.manager.start_sync("Photos")
@@ -179,13 +192,17 @@ class TestSource:
             for child in path.iterdir():
                 child.unlink()
             path.rmdir()
+        elif how == "subdirs":
+            for child in path.iterdir():
+                child.unlink()
+            (path / "empty-folder").mkdir()
         elif how == "file":
             for child in path.iterdir():
                 child.unlink()
             path.rmdir()
             path.write_text("not a directory")
 
-    @pytest.mark.parametrize("how", ["empty", "missing", "file"])
+    @pytest.mark.parametrize("how", ["empty", "subdirs", "missing", "file"])
     async def test_an_unusable_source_is_not_synced(self, world, broadcasts, how):
         world.add_drive("Photos")
         self._break(world, how)
@@ -225,6 +242,17 @@ class TestSource:
 
         assert len(world.launches) == 1
 
+    async def test_a_drive_whose_files_are_all_in_folders_is_synced(self, world):
+        world.add_drive("Photos", files=0)
+        folder = world.drives["Photos"] / "2024" / "trip"
+        folder.mkdir(parents=True)
+        (folder / "a.jpg").write_text("x")
+
+        await world.manager.start_sync("Photos")
+        await settle()
+
+        assert len(world.launches) == 1
+
 
 class TestDeleteCap:
     async def test_the_configured_cap_reaches_rclone(self, world):
@@ -248,6 +276,7 @@ class TestDeleteCap:
         status = world.manager._status["Photos"]
         assert status.status == "error"
         assert status.error_kind == "delete_limit"
+        assert "max_delete" in status.error_message
         event, payload = broadcasts[-1]
         assert event == "sync:error"
         assert payload["kind"] == status.error_kind

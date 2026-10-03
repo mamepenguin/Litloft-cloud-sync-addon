@@ -16,7 +16,7 @@ def test_max_delete_is_read_from_the_config():
     assert SyncConfig(mappings=[MAPPING], max_delete=5).max_delete == 5
 
 
-@pytest.mark.parametrize("value", [0, -1, "many", 1.5, None])
+@pytest.mark.parametrize("value", [0, -1, "many", 1.5, None, True, "5", 5.0])
 def test_max_delete_must_be_a_positive_integer(value):
     with pytest.raises(ValidationError):
         SyncConfig(mappings=[MAPPING], max_delete=value)

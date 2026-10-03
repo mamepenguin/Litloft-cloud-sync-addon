@@ -109,12 +109,9 @@ class SyncManager:
     @staticmethod
     def _source_usable(path: Path) -> bool:
         # An unmounted drive leaves an empty directory behind, and rclone sync
-        # from an empty source empties the remote.
-        try:
-            with os.scandir(path) as entries:
-                return next(entries, None) is not None
-        except OSError:
-            return False
+        # from a source with no files empties the remote. os.walk skips what it
+        # cannot read, so a folder it cannot list counts as having no files.
+        return any(files for _root, _dirs, files in os.walk(path))
 
     async def start_sync(self, drive_name: str) -> None:
         mapping = self._get_mapping(drive_name)
@@ -427,8 +424,6 @@ class SyncManager:
                     drive=mapping.drive,
                     remote=mapping.remote,
                     status="disabled",
-                    last_synced_at=status.last_synced_at if status else None,
-                    last_result=status.last_result if status else None,
                 ))
             elif status is not None:
                 drives.append(status)
