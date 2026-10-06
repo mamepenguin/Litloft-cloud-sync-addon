@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   FileText,
   Loader2,
+  Ban,
 } from "lucide-react";
 import { formatFileSize } from "@/lib/format";
 import type { SyncDriveStatus, SyncProgress } from "./api";
@@ -41,6 +42,19 @@ function formatSpeed(bytesPerSec: number): string {
 }
 
 type Translate = ReturnType<typeof useTranslations>;
+
+// Kinds the card words itself. A kind it does not know falls back to the
+// backend's message.
+function remedyKeys(kind: string | undefined) {
+  switch (kind) {
+    case "source_empty":
+      return { title: "sourceEmptyTitle", body: "sourceEmptyInstructions" } as const;
+    case "delete_limit":
+      return { title: "deleteLimitTitle", body: "deleteLimitInstructions" } as const;
+    default:
+      return null;
+  }
+}
 
 function formatRelativeTime(t: Translate, locale: string, isoString: string): string {
   const date = new Date(isoString);
@@ -90,6 +104,7 @@ export default function SyncDriveCard({
 
   const activeProgress = progress ?? drive.progress;
   const effectiveStatus = drive.status;
+  const remedy = remedyKeys(drive.error_kind);
 
   const handleStart = useCallback(async () => {
     setActionLoading(true);
@@ -133,7 +148,11 @@ export default function SyncDriveCard({
   }, [drive.drive, logOpen, t]);
 
   return (
-    <div className="rounded-lg border border-bg-border bg-bg-card p-5">
+    <div
+      className={`rounded-lg border border-bg-border bg-bg-card p-5 ${
+        effectiveStatus === "disabled" ? "opacity-70" : ""
+      }`}
+    >
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
@@ -149,6 +168,11 @@ export default function SyncDriveCard({
         </div>
         <StatusBadge status={effectiveStatus} />
       </div>
+
+      {/* Disabled State */}
+      {effectiveStatus === "disabled" && (
+        <p className="mt-4 text-xs text-text-muted">{t("disabledReason")}</p>
+      )}
 
       {/* Idle State */}
       {effectiveStatus === "idle" && (
@@ -265,11 +289,19 @@ export default function SyncDriveCard({
         <div className="mt-4 space-y-3">
           {drive.error_message && (
             <div className={`rounded-lg p-3 text-xs ${
-              drive.error_kind === "auth_expired"
+              drive.error_kind === "auth_expired" || remedy
                 ? "bg-accent-amber/10 text-accent-amber"
                 : "bg-danger/10 text-danger"
             }`}>
-              {drive.error_kind === "auth_expired" ? (
+              {remedy ? (
+                <>
+                  <div className="mb-1.5 flex items-center gap-1.5 font-semibold">
+                    <AlertTriangle size={14} />
+                    {t(remedy.title)}
+                  </div>
+                  <p>{t(remedy.body)}</p>
+                </>
+              ) : drive.error_kind === "auth_expired" ? (
                 <>
                   <div className="mb-1.5 flex items-center gap-1.5 font-semibold">
                     <AlertTriangle size={14} />
@@ -345,6 +377,13 @@ function StatusBadge({ status }: { status: SyncDriveStatus["status"] }) {
         <span className="flex items-center gap-1 rounded-full bg-danger/10 px-2.5 py-1 text-xs text-danger">
           <AlertTriangle size={12} />
           {t("statusError")}
+        </span>
+      );
+    case "disabled":
+      return (
+        <span className="flex items-center gap-1 rounded-full bg-bg-elevated px-2.5 py-1 text-xs text-text-muted">
+          <Ban size={12} />
+          {t("statusDisabled")}
         </span>
       );
   }

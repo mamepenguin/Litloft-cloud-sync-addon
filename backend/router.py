@@ -6,7 +6,7 @@ from fastapi.responses import PlainTextResponse
 from app.auth import require_admin
 
 from .schemas import SyncStatusResponse
-from .service import sync_manager
+from .service import PolicyBlocked, sync_manager
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,11 @@ async def get_status() -> SyncStatusResponse:
 async def start_sync(drive: str) -> dict:
     try:
         await sync_manager.start_sync(drive)
+    except PolicyBlocked:
+        raise HTTPException(
+            status_code=403,
+            detail="Cloud sync is turned off for this drive",
+        )
     except ValueError:
         raise HTTPException(status_code=404, detail="Drive not found in sync config")
     except RuntimeError:

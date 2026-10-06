@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class SyncMapping(BaseModel):
@@ -17,6 +17,9 @@ class SyncMapping(BaseModel):
 
 class SyncConfig(BaseModel):
     schedule: str | None = None
+    # Passed to rclone as --max-delete: a cap on deletes per run, not a check
+    # made before the first one.
+    max_delete: int = Field(default=200, ge=1, strict=True)
     mappings: list[SyncMapping]
 
 
@@ -40,7 +43,7 @@ class SyncProgress(BaseModel):
 class SyncDriveStatus(BaseModel):
     drive: str
     remote: str
-    status: str = "idle"  # idle | syncing | error
+    status: str = "idle"  # idle | syncing | error | disabled
     last_synced_at: str | None = None
     last_result: SyncResult | None = None
     progress: SyncProgress | None = None
