@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 
 import pytest
 
@@ -218,6 +219,65 @@ async def test_a_run_that_fails_releases_the_drive_for_the_next_start(
     await settle()
 
     assert len(world.launches) == 1
+
+
+async def test_cancel_during_the_source_check_launches_nothing(world, monkeypatch):
+    world.add_drive("Photos")
+    world.manager._status["Photos"] = SyncDriveStatus(
+        drive="Photos",
+        remote="r:Photos",
+        last_synced_at="2026-01-01T00:00:00+00:00",
+        last_result=SyncResult(transferred_files=3),
+    )
+    checking = threading.Event()
+    release = threading.Event()
+
+    def slow_check(path):
+        checking.set()
+        release.wait(5)
+        return True
+
+    monkeypatch.setattr(world.manager, "_source_usable", slow_check)
+
+    await world.manager.start_sync("Photos")
+    await asyncio.to_thread(checking.wait, 5)
+    cancelled = await world.manager.cancel_sync("Photos")
+    release.set()
+    await settle()
+
+    assert cancelled is True
+    assert world.launches == []
+    status = world.manager._status["Photos"]
+    assert status.status == "error"
+    assert status.last_synced_at == "2026-01-01T00:00:00+00:00"
+
+
+async def test_cancel_while_rclone_is_spawning_stops_it(world, monkeypatch):
+    world.add_drive("Photos")
+    spawning = asyncio.Event()
+    release = asyncio.Event()
+    terminated: list[bool] = []
+
+    class _Proc(_FakeProc):
+        def terminate(self) -> None:
+            terminated.append(True)
+
+    async def slow_exec(*argv, **kwargs):
+        world.launches.append(argv)
+        spawning.set()
+        await release.wait()
+        return _Proc([], -15)
+
+    monkeypatch.setattr(service.asyncio, "create_subprocess_exec", slow_exec)
+
+    await world.manager.start_sync("Photos")
+    await spawning.wait()
+    cancelled = await world.manager.cancel_sync("Photos")
+    release.set()
+    await settle()
+
+    assert cancelled is True
+    assert terminated == [True]
 
 
 def test_status_leaves_an_enabled_drive_as_it_was(world):

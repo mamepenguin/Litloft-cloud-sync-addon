@@ -41,6 +41,8 @@ class SyncManager:
         # Held from start_sync until the run ends, so a second start during the
         # awaited source check cannot launch another rclone for the same drive.
         self._running: set[str] = set()
+        # A cancel that arrives before rclone has a process to terminate.
+        self._cancelled: set[str] = set()
         self._status: dict[str, SyncDriveStatus] = {}
         self._config: SyncConfig | None = None
         self._scheduler_task: asyncio.Task[None] | None = None
@@ -149,7 +151,10 @@ class SyncManager:
     async def cancel_sync(self, drive_name: str) -> bool:
         proc = self._processes.get(drive_name)
         if proc is None:
-            return False
+            if drive_name not in self._running:
+                return False
+            self._cancelled.add(drive_name)
+            return True
         try:
             proc.terminate()
         except ProcessLookupError:
@@ -173,6 +178,12 @@ class SyncManager:
                 )
                 return
 
+            if drive_name in self._cancelled:
+                await self._handle_error(
+                    drive_name, "Cancelled before anything was synced."
+                )
+                return
+
             proc = await asyncio.create_subprocess_exec(
                 "rclone", "sync",
                 str(drive_path),
@@ -186,6 +197,11 @@ class SyncManager:
                 stderr=asyncio.subprocess.PIPE,
             )
             self._processes[drive_name] = proc
+            if drive_name in self._cancelled:
+                try:
+                    proc.terminate()
+                except ProcessLookupError:
+                    pass
 
             log_lines = await self._parse_rclone_output(
                 drive_name, proc, log_path
@@ -206,6 +222,7 @@ class SyncManager:
         finally:
             self._processes.pop(drive_name, None)
             self._running.discard(drive_name)
+            self._cancelled.discard(drive_name)
 
     async def _parse_rclone_output(
         self,
