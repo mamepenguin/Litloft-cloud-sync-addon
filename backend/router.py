@@ -5,8 +5,8 @@ from fastapi.responses import PlainTextResponse
 
 from app.auth import require_admin
 
-from .schemas import SyncStatusResponse
-from .service import PolicyBlocked, sync_manager
+from .schemas import SyncStatusResponse, normalize_mapping_path
+from .service import DriveNotFound, MappingNotFound, PolicyBlocked, sync_manager
 
 logger = logging.getLogger(__name__)
 
@@ -39,38 +39,37 @@ async def get_status() -> SyncStatusResponse:
 
 
 @router.post("/{drive}/start")
-async def start_sync(drive: str) -> dict:
+async def start_sync(drive: str, path: str = "") -> dict:
     try:
-        await sync_manager.start_sync(drive)
+        await sync_manager.start_sync(drive, path)
     except PolicyBlocked:
         raise HTTPException(
             status_code=403,
             detail="Cloud sync is turned off for this drive",
         )
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Drive not found in sync config")
+    except DriveNotFound:
+        raise HTTPException(status_code=404, detail="Drive not found")
+    except MappingNotFound:
+        raise HTTPException(status_code=404, detail="Mapping not found in sync config")
     except RuntimeError:
         raise HTTPException(status_code=409, detail="Sync already in progress")
-    return {"status": "started", "drive": drive}
+    return {"status": "started", "drive": drive, "path": normalize_mapping_path(path)}
 
 
 @router.post("/{drive}/cancel")
-async def cancel_sync(drive: str) -> dict:
-    success = await sync_manager.cancel_sync(drive)
+async def cancel_sync(drive: str, path: str = "") -> dict:
+    success = await sync_manager.cancel_sync(drive, path)
     if not success:
         raise HTTPException(
             status_code=404,
-            detail="No sync in progress for this drive",
+            detail="No sync in progress for this mapping",
         )
-    return {"status": "cancelled", "drive": drive}
+    return {"status": "cancelled", "drive": drive, "path": normalize_mapping_path(path)}
 
 
 @router.get("/{drive}/log", response_class=PlainTextResponse)
-async def get_log(drive: str) -> str:
-    mapping = sync_manager._get_mapping(drive)
-    if mapping is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Drive not found in sync config",
-        )
-    return sync_manager.get_log(drive)
+async def get_log(drive: str, path: str = "") -> str:
+    try:
+        return sync_manager.get_log(drive, path)
+    except MappingNotFound:
+        raise HTTPException(status_code=404, detail="Mapping not found in sync config")

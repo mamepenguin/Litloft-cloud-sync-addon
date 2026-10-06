@@ -35,8 +35,8 @@
     "reauthInstructions": "Run this on the host, then restart the container.",
     "statusDisabled": "Off",
     "disabledReason": "Cloud sync is turned off for this drive in Addon policy, so nothing is uploaded.",
-    "sourceEmptyTitle": "Drive folder is missing or empty",
-    "sourceEmptyInstructions": "Nothing was synced. Check that the drive is mounted, then try again.",
+    "sourceEmptyTitle": "Folder is missing or empty",
+    "sourceEmptyInstructions": "Nothing was synced. Check that the drive is mounted and that the folder exists, then try again.",
     "deleteLimitTitle": "Too many deletions",
     "deleteLimitInstructions": "The sync stopped because more files than max_delete were due to be deleted from the remote. Check that the drive is mounted. If the deletions are expected, raise max_delete in sync-config.json and run it again."
   }

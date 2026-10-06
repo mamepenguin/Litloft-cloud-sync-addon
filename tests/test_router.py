@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 import app.auth as auth
 from addons.cloud_sync import router as router_module
-from addons.cloud_sync.service import PolicyBlocked
+from addons.cloud_sync.service import MappingNotFound, PolicyBlocked
 
 
 @pytest.fixture()
@@ -22,7 +22,7 @@ def client(monkeypatch):
     [
         (None, 200),
         (PolicyBlocked("off"), 403),
-        (ValueError("unmapped"), 404),
+        (MappingNotFound("unmapped"), 404),
         (RuntimeError("busy"), 409),
     ],
     ids=["started", "policy-off", "unmapped", "already-running"],
@@ -30,7 +30,7 @@ def client(monkeypatch):
 def test_starting_a_sync_answers_with_the_reason_it_was_refused(
     client, monkeypatch, raised, status
 ):
-    async def start_sync(drive):
+    async def start_sync(drive, path=""):
         if raised is not None:
             raise raised
 

@@ -109,25 +109,25 @@ export default function SyncDriveCard({
   const handleStart = useCallback(async () => {
     setActionLoading(true);
     try {
-      await startSync(drive.drive);
+      await startSync(drive.drive, drive.path);
       onSyncStarted();
     } catch {
       // Error will surface through WebSocket or next status fetch
     } finally {
       setActionLoading(false);
     }
-  }, [drive.drive, onSyncStarted]);
+  }, [drive.drive, drive.path, onSyncStarted]);
 
   const handleCancel = useCallback(async () => {
     setActionLoading(true);
     try {
-      await cancelSync(drive.drive);
+      await cancelSync(drive.drive, drive.path);
     } catch {
       // Ignore cancel errors
     } finally {
       setActionLoading(false);
     }
-  }, [drive.drive]);
+  }, [drive.drive, drive.path]);
 
   const handleToggleLog = useCallback(async () => {
     if (logOpen) {
@@ -136,7 +136,7 @@ export default function SyncDriveCard({
     }
     setLogLoading(true);
     try {
-      const log = await fetchSyncLog(drive.drive);
+      const log = await fetchSyncLog(drive.drive, drive.path);
       setLogContent(log);
       setLogOpen(true);
     } catch {
@@ -145,7 +145,7 @@ export default function SyncDriveCard({
     } finally {
       setLogLoading(false);
     }
-  }, [drive.drive, logOpen, t]);
+  }, [drive.drive, drive.path, logOpen, t]);
 
   return (
     <div
@@ -161,7 +161,7 @@ export default function SyncDriveCard({
           </div>
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold text-text-primary">
-              {drive.drive}
+              {drive.path ? `${drive.drive} / ${drive.path}` : drive.drive}
             </h3>
             <p className="truncate text-xs text-text-muted">{drive.remote}</p>
           </div>

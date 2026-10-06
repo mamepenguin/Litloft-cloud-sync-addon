@@ -29,7 +29,7 @@ class TestErrorKindReachesTheBrowser:
     async def test_auth_failure_broadcasts_its_kind(
         self, manager_under_test, broadcasts
     ):
-        await manager_under_test._handle_completion("photos", 1, _result(), AUTH_LOG)
+        await manager_under_test._handle_completion(("photos", ""), 1, _result(), AUTH_LOG)
 
         event, payload = broadcasts[-1]
         assert event == "sync:error"
@@ -38,50 +38,50 @@ class TestErrorKindReachesTheBrowser:
     async def test_auth_failure_records_the_same_kind_in_status(
         self, manager_under_test, broadcasts
     ):
-        await manager_under_test._handle_completion("photos", 1, _result(), AUTH_LOG)
+        await manager_under_test._handle_completion(("photos", ""), 1, _result(), AUTH_LOG)
 
-        assert manager_under_test._status["photos"].error_kind == "auth_expired"
+        assert manager_under_test._status[("photos", "")].error_kind == "auth_expired"
 
     async def test_the_event_and_the_status_never_disagree(
         self, manager_under_test, broadcasts
     ):
         """The regression was exactly this: one carried the kind, the other did not."""
-        await manager_under_test._handle_completion("photos", 1, _result(), AUTH_LOG)
+        await manager_under_test._handle_completion(("photos", ""), 1, _result(), AUTH_LOG)
 
         _, payload = broadcasts[-1]
-        assert payload["kind"] == manager_under_test._status["photos"].error_kind
+        assert payload["kind"] == manager_under_test._status[("photos", "")].error_kind
 
     async def test_an_unclassified_failure_says_so_rather_than_staying_silent(
         self, manager_under_test, broadcasts
     ):
         """A missing key would let the client keep a previous drive's kind."""
-        await manager_under_test._handle_completion("photos", 1, _result(), OTHER_LOG)
+        await manager_under_test._handle_completion(("photos", ""), 1, _result(), OTHER_LOG)
 
         event, payload = broadcasts[-1]
         assert event == "sync:error"
         assert "kind" in payload
         assert payload["kind"] is None
-        assert manager_under_test._status["photos"].error_kind is None
+        assert manager_under_test._status[("photos", "")].error_kind is None
 
     async def test_a_later_plain_failure_clears_an_earlier_auth_kind(
         self, manager_under_test, broadcasts
     ):
         """Reconnect, retry, fail for another reason: the panel must move on."""
-        await manager_under_test._handle_completion("photos", 1, _result(), AUTH_LOG)
-        assert manager_under_test._status["photos"].error_kind == "auth_expired"
+        await manager_under_test._handle_completion(("photos", ""), 1, _result(), AUTH_LOG)
+        assert manager_under_test._status[("photos", "")].error_kind == "auth_expired"
 
-        await manager_under_test._handle_completion("photos", 1, _result(), OTHER_LOG)
+        await manager_under_test._handle_completion(("photos", ""), 1, _result(), OTHER_LOG)
 
-        assert manager_under_test._status["photos"].error_kind is None
+        assert manager_under_test._status[("photos", "")].error_kind is None
         assert broadcasts[-1][1]["kind"] is None
 
     async def test_success_leaves_no_error_behind(
         self, manager_under_test, broadcasts
     ):
-        await manager_under_test._handle_completion("photos", 1, _result(), AUTH_LOG)
-        await manager_under_test._handle_completion("photos", 0, _result(), [])
+        await manager_under_test._handle_completion(("photos", ""), 1, _result(), AUTH_LOG)
+        await manager_under_test._handle_completion(("photos", ""), 0, _result(), [])
 
-        status = manager_under_test._status["photos"]
+        status = manager_under_test._status[("photos", "")]
         assert status.status == "idle"
         assert status.error_kind is None
         assert status.error_message is None
@@ -98,7 +98,7 @@ class TestFailuresRaisedOutsideRclone:
     async def test_broadcasts_an_explicit_absence_of_kind(
         self, manager_under_test, broadcasts
     ):
-        await manager_under_test._handle_error("photos", "remote not configured")
+        await manager_under_test._handle_error(("photos", ""), "remote not configured")
 
         event, payload = broadcasts[-1]
         assert event == "sync:error"
@@ -106,22 +106,22 @@ class TestFailuresRaisedOutsideRclone:
         assert payload["kind"] is None
 
     async def test_records_no_kind_in_status(self, manager_under_test, broadcasts):
-        await manager_under_test._handle_error("photos", "remote not configured")
+        await manager_under_test._handle_error(("photos", ""), "remote not configured")
 
-        assert manager_under_test._status["photos"].error_kind is None
-        assert manager_under_test._status["photos"].error_message == (
+        assert manager_under_test._status[("photos", "")].error_kind is None
+        assert manager_under_test._status[("photos", "")].error_message == (
             "remote not configured"
         )
 
     async def test_displaces_an_earlier_auth_kind(
         self, manager_under_test, broadcasts
     ):
-        await manager_under_test._handle_completion("photos", 1, _result(), AUTH_LOG)
-        assert manager_under_test._status["photos"].error_kind == "auth_expired"
+        await manager_under_test._handle_completion(("photos", ""), 1, _result(), AUTH_LOG)
+        assert manager_under_test._status[("photos", "")].error_kind == "auth_expired"
 
-        await manager_under_test._handle_error("photos", "remote not configured")
+        await manager_under_test._handle_error(("photos", ""), "remote not configured")
 
-        assert manager_under_test._status["photos"].error_kind is None
+        assert manager_under_test._status[("photos", "")].error_kind is None
         assert broadcasts[-1][1]["kind"] is None
 
 

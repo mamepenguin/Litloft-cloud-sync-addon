@@ -118,7 +118,7 @@ class TestPolicy:
         await settle()
 
         assert world.launches == []
-        assert "Photos" not in world.manager._status
+        assert ("Photos", "") not in world.manager._status
 
     async def test_the_schedule_skips_the_drive_and_still_syncs_the_others(
         self, world, policy
@@ -144,7 +144,7 @@ async def test_the_policy_asked_about_is_the_umbrella_feature_of_this_addon(worl
 @pytest.mark.parametrize("policy", OFF, ids=["off", "lookup-raises"])
 def test_status_reports_a_blocked_drive_as_disabled_without_storing_it(world, policy):
     world.add_drive("Photos", policy=policy)
-    world.manager._status["Photos"] = SyncDriveStatus(
+    world.manager._status[("Photos", "")] = SyncDriveStatus(
         drive="Photos",
         remote="r:Photos",
         status="error",
@@ -159,7 +159,7 @@ def test_status_reports_a_blocked_drive_as_disabled_without_storing_it(world, po
     assert drive.error_kind is None
     assert drive.last_synced_at is None
     assert drive.last_result is None
-    assert world.manager._status["Photos"].status == "error"
+    assert world.manager._status[("Photos", "")].status == "error"
 
 
 async def test_a_running_sync_is_reported_as_syncing_after_the_policy_turns_off(world):
@@ -223,7 +223,7 @@ async def test_a_run_that_fails_releases_the_drive_for_the_next_start(
 
 async def test_cancel_during_the_source_check_launches_nothing(world, monkeypatch):
     world.add_drive("Photos")
-    world.manager._status["Photos"] = SyncDriveStatus(
+    world.manager._status[("Photos", "")] = SyncDriveStatus(
         drive="Photos",
         remote="r:Photos",
         last_synced_at="2026-01-01T00:00:00+00:00",
@@ -232,7 +232,7 @@ async def test_cancel_during_the_source_check_launches_nothing(world, monkeypatc
     checking = threading.Event()
     release = threading.Event()
 
-    def slow_check(path):
+    def slow_check(*args):
         checking.set()
         release.wait(5)
         return True
@@ -247,11 +247,11 @@ async def test_cancel_during_the_source_check_launches_nothing(world, monkeypatc
 
     assert cancelled is True
     assert world.launches == []
-    status = world.manager._status["Photos"]
+    status = world.manager._status[("Photos", "")]
     assert status.status == "error"
     assert status.last_synced_at == "2026-01-01T00:00:00+00:00"
 
-    monkeypatch.setattr(world.manager, "_source_usable", lambda path: True)
+    monkeypatch.setattr(world.manager, "_source_usable", lambda *args: True)
     await world.manager.start_sync("Photos")
     await settle()
 
@@ -347,7 +347,7 @@ class TestSource:
         await settle()
 
         assert world.launches == []
-        status = world.manager._status["Photos"]
+        status = world.manager._status[("Photos", "")]
         assert status.status == "error"
         assert status.error_kind == "source_empty"
         event, payload = broadcasts[-1]
@@ -358,14 +358,14 @@ class TestSource:
         world.add_drive("Photos")
         await world.manager.start_sync("Photos")
         await settle()
-        good = world.manager._status["Photos"]
+        good = world.manager._status[("Photos", "")]
         assert good.last_synced_at is not None
         self._break(world, "empty")
 
         await world.manager.start_sync("Photos")
         await settle()
 
-        after = world.manager._status["Photos"]
+        after = world.manager._status[("Photos", "")]
         assert after.error_kind == "source_empty"
         assert after.last_synced_at == good.last_synced_at
         assert after.last_result == good.last_result
@@ -409,7 +409,7 @@ class TestDeleteCap:
         await world.manager.start_sync("Photos")
         await settle()
 
-        status = world.manager._status["Photos"]
+        status = world.manager._status[("Photos", "")]
         assert status.status == "error"
         assert status.error_kind == "delete_limit"
         assert "max_delete" in status.error_message
@@ -427,7 +427,7 @@ class TestDeleteCap:
         await world.manager.start_sync("Photos")
         await settle()
 
-        assert world.manager._status["Photos"].error_kind is None
+        assert world.manager._status[("Photos", "")].error_kind is None
         assert broadcasts[-1][1]["kind"] is None
 
     async def test_the_cap_line_on_a_successful_run_is_ignored(
@@ -440,4 +440,4 @@ class TestDeleteCap:
         await world.manager.start_sync("Photos")
         await settle()
 
-        assert world.manager._status["Photos"].status == "idle"
+        assert world.manager._status[("Photos", "")].status == "idle"

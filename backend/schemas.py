@@ -1,9 +1,48 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+def normalize_mapping_path(raw: object) -> str:
+    """The folder a mapping names, relative to the drive root; "" is the root.
+
+    Empty and "." segments are dropped so that spellings of one folder compare
+    equal. Nothing else is rewritten: the path is only ever opened, and the host
+    filesystem resolves case and Unicode normalization itself.
+    """
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raise ValueError(f"Mapping path must be a string, got {raw!r}")
+    if "\0" in raw or raw.startswith("/"):
+        raise ValueError(f"Mapping path must be relative to the drive: {raw!r}")
+    segments = [s for s in raw.split("/") if s not in ("", ".")]
+    if ".." in segments:
+        raise ValueError(f"Mapping path must not contain '..': {raw!r}")
+    return "/".join(segments)
+
+
+def _remote_place(remote: str) -> tuple[str, tuple[str, ...]]:
+    name, _, path = remote.partition(":")
+    return name, tuple(s for s in path.split("/") if s)
+
+
+def _remotes_overlap(a: str, b: str) -> bool:
+    name_a, path_a = _remote_place(a)
+    name_b, path_b = _remote_place(b)
+    if name_a != name_b:
+        return False
+    shorter = min(len(path_a), len(path_b))
+    return path_a[:shorter] == path_b[:shorter]
 
 
 class SyncMapping(BaseModel):
     drive: str
+    path: str = ""
     remote: str
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def validate_path(cls, v: object) -> str:
+        return normalize_mapping_path(v)
 
     @field_validator("remote")
     @classmethod
@@ -21,6 +60,25 @@ class SyncConfig(BaseModel):
     # made before the first one.
     max_delete: int = Field(default=200, ge=1, strict=True)
     mappings: list[SyncMapping]
+
+    # Two mirrors writing to one place delete each other's files, so a file that
+    # sets that up is refused as a whole rather than synced in part.
+    @model_validator(mode="after")
+    def validate_mappings_are_distinct(self) -> "SyncConfig":
+        seen: set[tuple[str, str]] = set()
+        for m in self.mappings:
+            if (m.drive, m.path) in seen:
+                raise ValueError(
+                    f"Duplicate mapping: drive {m.drive!r}, path {m.path!r}"
+                )
+            seen.add((m.drive, m.path))
+        for i, a in enumerate(self.mappings):
+            for b in self.mappings[i + 1:]:
+                if _remotes_overlap(a.remote, b.remote):
+                    raise ValueError(
+                        f"Remotes overlap: {a.remote!r} and {b.remote!r}"
+                    )
+        return self
 
 
 class SyncResult(BaseModel):
@@ -42,6 +100,7 @@ class SyncProgress(BaseModel):
 
 class SyncDriveStatus(BaseModel):
     drive: str
+    path: str = ""
     remote: str
     status: str = "idle"  # idle | syncing | error | disabled
     last_synced_at: str | None = None

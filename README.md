@@ -37,7 +37,7 @@ git clone https://github.com/mamepenguin/cloud-sync.git addons/cloud-sync
 cp addons/cloud-sync/sync-config.json.example addons/cloud-sync/sync-config.json
 ```
 
-Edit `sync-config.json` with your drive-to-remote mappings:
+Edit `sync-config.json` with your mappings. A mapping mirrors a whole drive, or with `path` one folder inside it:
 
 ```json
 {
@@ -49,7 +49,8 @@ Edit `sync-config.json` with your drive-to-remote mappings:
     },
     {
       "drive": "TV Shows",
-      "remote": "s3:my-bucket/tv"
+      "path": "Documentaries/2026",
+      "remote": "s3:my-bucket/tv-docs"
     }
   ]
 }
@@ -104,9 +105,13 @@ pip install -r addons/cloud-sync/backend/requirements.txt
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `schedule` | `string` | No | Cron expression (5-field). Omit to disable auto-sync. |
-| `mappings` | `array` | Yes | Drive-to-remote mapping list. |
+| `max_delete` | `integer` | No | Most files one sync may delete from the remote (rclone `--max-delete`). Default `200`. |
+| `mappings` | `array` | Yes | Mapping list. |
 | `mappings[].drive` | `string` | Yes | Local drive name (must match a drive in `drives.json`). |
+| `mappings[].path` | `string` | No | Folder inside the drive to mirror, relative to the drive root. Omit for the whole drive. |
 | `mappings[].remote` | `string` | Yes | rclone remote in `remote_name:path` format. |
+
+A drive may have several mappings for different folders. A file with two mappings of the same drive and folder, a `path` that starts with `/` or contains `..`, or two remotes that are the same place or one inside the other is rejected as a whole, and nothing syncs.
 
 ### Cron examples
 
@@ -123,18 +128,18 @@ Base path: `/api/addons/cloud-sync`
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/status` | Status of all drives and next scheduled sync |
-| `POST` | `/{drive}/start` | Start sync for a drive |
-| `POST` | `/{drive}/cancel` | Cancel an in-progress sync |
-| `GET` | `/{drive}/log` | Fetch sync log (plain text) |
+| `GET` | `/status` | Status of every mapping and next scheduled sync |
+| `POST` | `/{drive}/start?path=` | Start sync for a mapping (`path` omitted = whole drive) |
+| `POST` | `/{drive}/cancel?path=` | Cancel an in-progress sync |
+| `GET` | `/{drive}/log?path=` | Fetch sync log (plain text) |
 
 ### WebSocket events
 
 | Event | Payload | Description |
 |---|---|---|
-| `sync:progress` | `{drive, progress}` | Live transfer progress (every 1s) |
-| `sync:complete` | `{drive, result}` | Sync finished successfully |
-| `sync:error` | `{drive, error}` | Sync failed |
+| `sync:progress` | `{drive, path, bytes_transferred, total_bytes, speed, eta, percent, transfers, total_transfers}` | Live transfer progress (every 1s) |
+| `sync:complete` | `{drive, path, transferred_files, transferred_bytes, errors, elapsed_seconds}` | Sync finished successfully |
+| `sync:error` | `{drive, path, message, kind}` | Sync failed |
 
 ## Troubleshooting
 
