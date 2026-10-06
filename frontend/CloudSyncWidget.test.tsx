@@ -161,13 +161,13 @@ describe("SPEC-ADDON-003 CloudSyncWidget", () => {
       const remotes = drives.map((d) => d.remote);
       await renderWith(drives);
 
-      act(() => push(progressEvent("動画", "a")));
+      act(() => push(progressEvent("動画", "")));
       act(() =>
         push({
           event,
           data: {
             drive: "動画",
-            path: "",
+            path: "a",
             message: "failed",
             kind: null,
             transferred_files: 0,
@@ -178,7 +178,7 @@ describe("SPEC-ADDON-003 CloudSyncWidget", () => {
         } as WebSocketEvent),
       );
 
-      expect(cardOf("gd:a", remotes).textContent).toMatch(/3\/7 files/);
+      expect(cardOf("gd:root", remotes).textContent).toMatch(/3\/7 files/);
     },
   );
 
