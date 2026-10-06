@@ -161,6 +161,32 @@ def test_status_reports_a_blocked_drive_as_disabled_without_storing_it(world, po
     assert world.manager._status["Photos"].status == "error"
 
 
+async def test_a_running_sync_is_reported_as_syncing_after_the_policy_turns_off(world):
+    world.add_drive("Photos")
+    await world.manager.start_sync("Photos")
+    world.policy["Photos"] = False
+
+    (drive,) = world.manager.get_status().drives
+    await settle()
+
+    assert drive.status == "syncing"
+
+
+@pytest.mark.parametrize("second", ["manual", "schedule"])
+async def test_a_second_start_during_the_first_never_launches_twice(world, second):
+    world.add_drive("Photos")
+
+    await world.manager.start_sync("Photos")
+    if second == "manual":
+        with pytest.raises(RuntimeError):
+            await world.manager.start_sync("Photos")
+    else:
+        await world.manager._run_scheduled_sync()
+    await settle()
+
+    assert len(world.launches) == 1
+
+
 def test_status_leaves_an_enabled_drive_as_it_was(world):
     world.add_drive("Photos")
 

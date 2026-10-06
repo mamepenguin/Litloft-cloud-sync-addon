@@ -38,6 +38,9 @@ class PolicyBlocked(Exception):
 class SyncManager:
     def __init__(self) -> None:
         self._processes: dict[str, asyncio.subprocess.Process] = {}
+        # Held from start_sync until the run ends, so a second start during the
+        # awaited source check cannot launch another rclone for the same drive.
+        self._running: set[str] = set()
         self._status: dict[str, SyncDriveStatus] = {}
         self._config: SyncConfig | None = None
         self._scheduler_task: asyncio.Task[None] | None = None
@@ -126,7 +129,7 @@ class SyncManager:
         if not self._policy_allows(drive_name):
             raise PolicyBlocked(f"Cloud sync is off for drive: {drive_name}")
 
-        if drive_name in self._processes:
+        if drive_name in self._running:
             raise RuntimeError(f"Sync already in progress for: {drive_name}")
 
         _, remote = mapping
@@ -140,6 +143,7 @@ class SyncManager:
             progress=SyncProgress(),
         )
 
+        self._running.add(drive_name)
         asyncio.create_task(self._run_rclone(drive_name, drive_path, remote))
 
     async def cancel_sync(self, drive_name: str) -> bool:
@@ -201,6 +205,7 @@ class SyncManager:
             await self._handle_error(drive_name, str(exc))
         finally:
             self._processes.pop(drive_name, None)
+            self._running.discard(drive_name)
 
     async def _parse_rclone_output(
         self,
@@ -419,7 +424,9 @@ class SyncManager:
         drives: list[SyncDriveStatus] = []
         for mapping in cfg.mappings:
             status = self._status.get(mapping.drive)
-            if not self._policy_allows(mapping.drive):
+            if status is not None and status.status == "syncing":
+                drives.append(status)
+            elif not self._policy_allows(mapping.drive):
                 drives.append(SyncDriveStatus(
                     drive=mapping.drive,
                     remote=mapping.remote,
@@ -505,7 +512,7 @@ class SyncManager:
         cfg = self._load_config()
         for mapping in cfg.mappings:
             drive_name = mapping.drive
-            if drive_name in self._processes:
+            if drive_name in self._running:
                 logger.info(
                     "Skipping scheduled sync for %s (already syncing)",
                     drive_name,
