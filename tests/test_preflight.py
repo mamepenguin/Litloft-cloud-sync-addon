@@ -251,6 +251,23 @@ async def test_cancel_during_the_source_check_launches_nothing(world, monkeypatc
     assert status.status == "error"
     assert status.last_synced_at == "2026-01-01T00:00:00+00:00"
 
+    monkeypatch.setattr(world.manager, "_source_usable", lambda path: True)
+    await world.manager.start_sync("Photos")
+    await settle()
+
+    assert len(world.launches) == 1
+
+
+async def test_cancel_with_nothing_running_does_not_cancel_the_next_sync(world):
+    world.add_drive("Photos")
+
+    cancelled = await world.manager.cancel_sync("Photos")
+    await world.manager.start_sync("Photos")
+    await settle()
+
+    assert cancelled is False
+    assert len(world.launches) == 1
+
 
 async def test_cancel_while_rclone_is_spawning_stops_it(world, monkeypatch):
     world.add_drive("Photos")
