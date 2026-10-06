@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -15,9 +16,11 @@ from app.services.ws import manager
 from .schemas import (
     SyncConfig,
     SyncDriveStatus,
+    SyncMapping,
     SyncProgress,
     SyncResult,
     SyncStatusResponse,
+    normalize_mapping_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,19 +34,31 @@ MAX_LOG_SIZE = 1_048_576  # 1MB
 ADDON_NAME = "cloud-sync"
 
 
+# A mapping is identified by its drive and its normalized path ("" = the drive root).
+Key = tuple[str, str]
+
+
 class PolicyBlocked(Exception):
     """The drive's addon policy is off, or could not be read."""
 
 
+class MappingNotFound(ValueError):
+    """No mapping in sync-config.json has this drive and path."""
+
+
+class DriveNotFound(ValueError):
+    """The mapping's drive is not in drives.json."""
+
+
 class SyncManager:
     def __init__(self) -> None:
-        self._processes: dict[str, asyncio.subprocess.Process] = {}
+        self._processes: dict[Key, asyncio.subprocess.Process] = {}
         # Held from start_sync until the run ends, so a second start during the
-        # awaited source check cannot launch another rclone for the same drive.
-        self._running: set[str] = set()
+        # awaited source check cannot launch another rclone for the same mapping.
+        self._running: set[Key] = set()
         # A cancel that arrives before rclone has a process to terminate.
-        self._cancelled: set[str] = set()
-        self._status: dict[str, SyncDriveStatus] = {}
+        self._cancelled: set[Key] = set()
+        self._status: dict[Key, SyncDriveStatus] = {}
         self._config: SyncConfig | None = None
         self._scheduler_task: asyncio.Task[None] | None = None
 
@@ -68,16 +83,27 @@ class SyncManager:
                 raw = json.load(f)
             self._config = SyncConfig(**raw)
         except (json.JSONDecodeError, ValueError) as exc:
-            logger.error("Failed to parse sync-config.json: %s", exc)
+            logger.error(
+                "Failed to parse sync-config.json, so nothing syncs. After fixing "
+                "it, restart the backend to bring the schedule back: %s",
+                exc,
+            )
             self._config = SyncConfig(mappings=[])
         return self._config
 
-    def _get_mapping(self, drive_name: str) -> tuple[str, str] | None:
+    def _get_mapping(self, drive_name: str, path: str) -> SyncMapping | None:
         cfg = self._load_config()
         for mapping in cfg.mappings:
-            if mapping.drive == drive_name:
-                return mapping.drive, mapping.remote
+            if (mapping.drive, mapping.path) == (drive_name, path):
+                return mapping
         return None
+
+    @staticmethod
+    def _key(drive_name: str, path: object) -> Key | None:
+        try:
+            return drive_name, normalize_mapping_path(path)
+        except ValueError:
+            return None
 
     def _ensure_log_dir(self) -> None:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -86,13 +112,18 @@ class SyncManager:
     def _safe_log_name(drive_name: str) -> str:
         return re.sub(r"[^a-zA-Z0-9_\-\u3000-\u9fff\uf900-\ufaff]", "_", drive_name)
 
-    def _get_drive_status(self, drive_name: str, remote: str) -> SyncDriveStatus:
-        if drive_name not in self._status:
-            self._status[drive_name] = SyncDriveStatus(
-                drive=drive_name,
-                remote=remote,
-            )
-        return self._status[drive_name]
+    @classmethod
+    def _log_path(cls, key: Key) -> Path:
+        drive_name, path = key
+        safe = cls._safe_log_name(drive_name)
+        if not path:
+            return LOG_DIR / f"{safe}.log"
+        # The sanitizer turns "." into "_", so this can never equal a
+        # whole-drive mapping's name.
+        digest = hashlib.sha256(
+            drive_name.encode("utf-8") + b"\0" + path.encode("utf-8")
+        ).hexdigest()[:16]
+        return LOG_DIR / f"{safe}.{digest}.log"
 
     @staticmethod
     def _policy_allows(drive_name: str) -> bool:
@@ -112,48 +143,60 @@ class SyncManager:
             return False
 
     @staticmethod
-    def _source_usable(path: Path) -> bool:
+    def _source_usable(source: Path, drive_root: Path) -> bool:
+        # A symlink inside the drive may point anywhere; the drive is the
+        # boundary, so what it resolves to must stay under the drive's root.
+        real_root = os.path.realpath(drive_root)
+        real_source = os.path.realpath(source)
+        if os.path.commonpath([real_root, real_source]) != real_root:
+            return False
         # An unmounted drive leaves an empty directory behind, and rclone sync
         # from a source with no files empties the remote. os.walk skips what it
         # cannot read, so a folder it cannot list counts as having no files.
-        return any(files for _root, _dirs, files in os.walk(path))
+        return any(files for _root, _dirs, files in os.walk(source))
 
-    async def start_sync(self, drive_name: str) -> None:
-        mapping = self._get_mapping(drive_name)
-        if mapping is None:
-            raise ValueError(f"Drive not found in sync config: {drive_name}")
+    async def start_sync(self, drive_name: str, path: object = "") -> None:
+        key = self._key(drive_name, path)
+        mapping = self._get_mapping(*key) if key is not None else None
+        if key is None or mapping is None:
+            raise MappingNotFound(
+                f"Mapping not found in sync config: {drive_name} {path!r}"
+            )
 
         try:
             drive_path = config.get_drive_path(drive_name)
         except ValueError:
-            raise ValueError(f"Drive not found: {drive_name}")
+            raise DriveNotFound(f"Drive not found: {drive_name}")
 
         if not self._policy_allows(drive_name):
             raise PolicyBlocked(f"Cloud sync is off for drive: {drive_name}")
 
-        if drive_name in self._running:
-            raise RuntimeError(f"Sync already in progress for: {drive_name}")
+        if key in self._running:
+            raise RuntimeError(f"Sync already in progress for: {key}")
 
-        _, remote = mapping
-        status = self._get_drive_status(drive_name, remote)
-        self._status[drive_name] = SyncDriveStatus(
-            drive=status.drive,
-            remote=status.remote,
+        previous = self._status.get(key)
+        self._status[key] = SyncDriveStatus(
+            drive=drive_name,
+            path=mapping.path,
+            remote=mapping.remote,
             status="syncing",
-            last_synced_at=status.last_synced_at,
-            last_result=status.last_result,
+            last_synced_at=previous.last_synced_at if previous else None,
+            last_result=previous.last_result if previous else None,
             progress=SyncProgress(),
         )
 
-        self._running.add(drive_name)
-        asyncio.create_task(self._run_rclone(drive_name, drive_path, remote))
+        self._running.add(key)
+        asyncio.create_task(self._run_rclone(key, drive_path, mapping.remote))
 
-    async def cancel_sync(self, drive_name: str) -> bool:
-        proc = self._processes.get(drive_name)
+    async def cancel_sync(self, drive_name: str, path: object = "") -> bool:
+        # Looked up among the runs, not in the file, so a run stays cancellable
+        # after its mapping is edited out of the file or the file breaks.
+        key = self._key(drive_name, path)
+        if key is None or key not in self._running:
+            return False
+        proc = self._processes.get(key)
         if proc is None:
-            if drive_name not in self._running:
-                return False
-            self._cancelled.add(drive_name)
+            self._cancelled.add(key)
             return True
         try:
             proc.terminate()
@@ -162,31 +205,31 @@ class SyncManager:
         return True
 
     async def _run_rclone(
-        self, drive_name: str, drive_path: Path, remote: str
+        self, key: Key, drive_path: Path, remote: str
     ) -> None:
         start_time = time.monotonic()
+        _, path = key
+        source = drive_path / path if path else drive_path
 
         try:
             self._ensure_log_dir()
-            log_path = LOG_DIR / f"{self._safe_log_name(drive_name)}.log"
-            if not await asyncio.to_thread(self._source_usable, drive_path):
+            log_path = self._log_path(key)
+            if not await asyncio.to_thread(self._source_usable, source, drive_path):
                 await self._handle_error(
-                    drive_name,
-                    "The drive folder is missing or empty, so nothing was synced. "
-                    "Check that the drive is mounted.",
+                    key,
+                    "The folder is missing or empty, so nothing was synced. "
+                    "Check that the drive is mounted and the folder exists.",
                     kind="source_empty",
                 )
                 return
 
-            if drive_name in self._cancelled:
-                await self._handle_error(
-                    drive_name, "Cancelled before anything was synced."
-                )
+            if key in self._cancelled:
+                await self._handle_error(key, "Cancelled before anything was synced.")
                 return
 
             proc = await asyncio.create_subprocess_exec(
                 "rclone", "sync",
-                str(drive_path),
+                str(source),
                 remote,
                 "--max-delete", str(self._load_config().max_delete),
                 "--stats", "1s",
@@ -196,37 +239,32 @@ class SyncManager:
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
-            self._processes[drive_name] = proc
-            if drive_name in self._cancelled:
+            self._processes[key] = proc
+            if key in self._cancelled:
                 try:
                     proc.terminate()
                 except ProcessLookupError:
                     pass
 
-            log_lines = await self._parse_rclone_output(
-                drive_name, proc, log_path
-            )
+            log_lines = await self._parse_rclone_output(key, proc, log_path)
 
             await proc.wait()
             elapsed = time.monotonic() - start_time
 
-            result = self._build_result(drive_name, elapsed)
-            await self._handle_completion(
-                drive_name, proc.returncode, result, log_lines
-            )
+            result = self._build_result(key, elapsed)
+            await self._handle_completion(key, proc.returncode, result, log_lines)
 
         except Exception as exc:
-            elapsed = time.monotonic() - start_time
-            logger.exception("rclone failed for drive %s", drive_name)
-            await self._handle_error(drive_name, str(exc))
+            logger.exception("rclone failed for %s", key)
+            await self._handle_error(key, str(exc))
         finally:
-            self._processes.pop(drive_name, None)
-            self._running.discard(drive_name)
-            self._cancelled.discard(drive_name)
+            self._processes.pop(key, None)
+            self._running.discard(key)
+            self._cancelled.discard(key)
 
     async def _parse_rclone_output(
         self,
-        drive_name: str,
+        key: Key,
         proc: asyncio.subprocess.Process,
         log_path: Path,
     ) -> list[bytes]:
@@ -270,10 +308,11 @@ class SyncManager:
                 total_transfers=stats.get("totalTransfers", 0),
             )
 
-            self._update_progress(drive_name, progress)
+            self._update_progress(key, progress)
 
             await manager.broadcast("sync:progress", {
-                "drive": drive_name,
+                "drive": key[0],
+                "path": key[1],
                 "bytes_transferred": progress.bytes_transferred,
                 "total_bytes": progress.total_bytes,
                 "speed": progress.speed,
@@ -286,12 +325,13 @@ class SyncManager:
         self._write_log(log_path, log_lines)
         return all_lines
 
-    def _update_progress(self, drive_name: str, progress: SyncProgress) -> None:
-        current = self._status.get(drive_name)
+    def _update_progress(self, key: Key, progress: SyncProgress) -> None:
+        current = self._status.get(key)
         if current is None:
             return
-        self._status[drive_name] = SyncDriveStatus(
+        self._status[key] = SyncDriveStatus(
             drive=current.drive,
+            path=current.path,
             remote=current.remote,
             status=current.status,
             last_synced_at=current.last_synced_at,
@@ -299,8 +339,8 @@ class SyncManager:
             progress=progress,
         )
 
-    def _build_result(self, drive_name: str, elapsed: float) -> SyncResult:
-        current = self._status.get(drive_name)
+    def _build_result(self, key: Key, elapsed: float) -> SyncResult:
+        current = self._status.get(key)
         progress = current.progress if current else None
         return SyncResult(
             transferred_files=progress.transfers if progress else 0,
@@ -340,18 +380,20 @@ class SyncManager:
 
     async def _handle_completion(
         self,
-        drive_name: str,
+        key: Key,
         returncode: int | None,
         result: SyncResult,
         log_lines: list[bytes],
     ) -> None:
+        drive_name, path = key
         now = datetime.now(UTC).isoformat()
-        current = self._status.get(drive_name)
+        current = self._status.get(key)
         remote = current.remote if current else ""
 
         if returncode == 0:
-            self._status[drive_name] = SyncDriveStatus(
+            self._status[key] = SyncDriveStatus(
                 drive=drive_name,
+                path=path,
                 remote=remote,
                 status="idle",
                 last_synced_at=now,
@@ -359,12 +401,13 @@ class SyncManager:
             )
             await manager.broadcast("sync:complete", {
                 "drive": drive_name,
+                "path": path,
                 "transferred_files": result.transferred_files,
                 "transferred_bytes": result.transferred_bytes,
                 "errors": result.errors,
                 "elapsed_seconds": result.elapsed_seconds,
             })
-            await self._on_sync_complete(drive_name, result)
+            await self._on_sync_complete(key, result)
         else:
             error_kind = self._classify_error(log_lines)
             if error_kind == "auth_expired":
@@ -381,8 +424,9 @@ class SyncManager:
                 )
             else:
                 error_msg = f"rclone exited with code {returncode}"
-            self._status[drive_name] = SyncDriveStatus(
+            self._status[key] = SyncDriveStatus(
                 drive=drive_name,
+                path=path,
                 remote=remote,
                 status="error",
                 last_synced_at=now,
@@ -392,17 +436,20 @@ class SyncManager:
             )
             await manager.broadcast("sync:error", {
                 "drive": drive_name,
+                "path": path,
                 "message": error_msg,
                 "kind": error_kind,
             })
 
     async def _handle_error(
-        self, drive_name: str, message: str, kind: str | None = None
+        self, key: Key, message: str, kind: str | None = None
     ) -> None:
-        current = self._status.get(drive_name)
+        drive_name, path = key
+        current = self._status.get(key)
         remote = current.remote if current else ""
-        self._status[drive_name] = SyncDriveStatus(
+        self._status[key] = SyncDriveStatus(
             drive=drive_name,
+            path=path,
             remote=remote,
             status="error",
             last_synced_at=current.last_synced_at if current else None,
@@ -412,13 +459,12 @@ class SyncManager:
         )
         await manager.broadcast("sync:error", {
             "drive": drive_name,
+            "path": path,
             "message": message,
             "kind": kind,
         })
 
-    async def _on_sync_complete(
-        self, drive_name: str, result: SyncResult
-    ) -> None:
+    async def _on_sync_complete(self, key: Key, result: SyncResult) -> None:
         """Sync completion hook. Extension point for future features.
 
         For example, if cloud-to-local sync is added later:
@@ -440,12 +486,13 @@ class SyncManager:
         cfg = self._load_config()
         drives: list[SyncDriveStatus] = []
         for mapping in cfg.mappings:
-            status = self._status.get(mapping.drive)
+            status = self._status.get((mapping.drive, mapping.path))
             if status is not None and status.status == "syncing":
                 drives.append(status)
             elif not self._policy_allows(mapping.drive):
                 drives.append(SyncDriveStatus(
                     drive=mapping.drive,
+                    path=mapping.path,
                     remote=mapping.remote,
                     status="disabled",
                 ))
@@ -454,6 +501,7 @@ class SyncManager:
             else:
                 drives.append(SyncDriveStatus(
                     drive=mapping.drive,
+                    path=mapping.path,
                     remote=mapping.remote,
                 ))
         return SyncStatusResponse(
@@ -462,14 +510,19 @@ class SyncManager:
             next_sync_at=self._get_next_sync_at(),
         )
 
-    def get_log(self, drive_name: str) -> str:
-        log_path = LOG_DIR / f"{self._safe_log_name(drive_name)}.log"
+    def get_log(self, drive_name: str, path: object = "") -> str:
+        key = self._key(drive_name, path)
+        if key is None or self._get_mapping(*key) is None:
+            raise MappingNotFound(
+                f"Mapping not found in sync config: {drive_name} {path!r}"
+            )
+        log_path = self._log_path(key)
         if not log_path.exists():
             return ""
         try:
             return log_path.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
-            logger.error("Failed to read log for %s: %s", drive_name, exc)
+            logger.error("Failed to read log for %s: %s", key, exc)
             return ""
 
     @staticmethod
@@ -528,24 +581,17 @@ class SyncManager:
     async def _run_scheduled_sync(self) -> None:
         cfg = self._load_config()
         for mapping in cfg.mappings:
-            drive_name = mapping.drive
-            if drive_name in self._running:
-                logger.info(
-                    "Skipping scheduled sync for %s (already syncing)",
-                    drive_name,
-                )
+            key = (mapping.drive, mapping.path)
+            if key in self._running:
+                logger.info("Skipping scheduled sync for %s (already syncing)", key)
                 continue
             try:
-                await self.start_sync(drive_name)
-                logger.info("Scheduled sync started for %s", drive_name)
+                await self.start_sync(mapping.drive, mapping.path)
+                logger.info("Scheduled sync started for %s", key)
             except PolicyBlocked:
-                logger.info("Skipping scheduled sync for %s (policy off)", drive_name)
+                logger.info("Skipping scheduled sync for %s (policy off)", key)
             except (ValueError, RuntimeError) as exc:
-                logger.warning(
-                    "Scheduled sync failed to start for %s: %s",
-                    drive_name,
-                    exc,
-                )
+                logger.warning("Scheduled sync failed to start for %s: %s", key, exc)
 
 
 sync_manager = SyncManager()

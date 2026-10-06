@@ -4,7 +4,12 @@ import { useCallback, useContext, useEffect, useState } from "react";
 import { Clock, Cloud } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { WebSocketContext } from "@/components/WebSocketProvider";
-import { fetchSyncStatus, type SyncDriveStatus, type SyncProgress } from "./api";
+import {
+  fetchSyncStatus,
+  mappingKey,
+  type SyncDriveStatus,
+  type SyncProgress,
+} from "./api";
 import SyncDriveCard from "./SyncDriveCard";
 
 type Translate = ReturnType<typeof useTranslations>;
@@ -49,6 +54,7 @@ function formatNextSync(t: Translate, locale: string, isoString: string): string
 
 interface SyncProgressEvent {
   drive: string;
+  path: string;
   bytes_transferred: number;
   total_bytes: number;
   speed: number;
@@ -60,6 +66,7 @@ interface SyncProgressEvent {
 
 interface SyncCompleteEvent {
   drive: string;
+  path: string;
   transferred_files: number;
   transferred_bytes: number;
   errors: number;
@@ -68,6 +75,7 @@ interface SyncCompleteEvent {
 
 interface SyncErrorEvent {
   drive: string;
+  path: string;
   message: string;
   // Absent on an event from an older backend; assigning it unconditionally
   // below is what stops a previous failure's kind from surviving into this one.
@@ -110,7 +118,7 @@ export default function CloudSyncWidget() {
         const d = data as unknown as SyncProgressEvent;
         setProgressMap((prev) => ({
           ...prev,
-          [d.drive]: {
+          [mappingKey(d.drive, d.path)]: {
             bytes_transferred: d.bytes_transferred,
             total_bytes: d.total_bytes,
             speed: d.speed,
@@ -122,7 +130,7 @@ export default function CloudSyncWidget() {
         }));
         setDrives((prev) =>
           prev.map((drive) =>
-            drive.drive === d.drive && drive.status !== "syncing"
+            drive.drive === d.drive && drive.path === d.path && drive.status !== "syncing"
               ? { ...drive, status: "syncing" as const }
               : drive,
           ),
@@ -133,12 +141,12 @@ export default function CloudSyncWidget() {
         const d = data as unknown as SyncCompleteEvent;
         setProgressMap((prev) => {
           const next = { ...prev };
-          delete next[d.drive];
+          delete next[mappingKey(d.drive, d.path)];
           return next;
         });
         setDrives((prev) =>
           prev.map((drive) =>
-            drive.drive === d.drive
+            drive.drive === d.drive && drive.path === d.path
               ? {
                   ...drive,
                   status: "idle" as const,
@@ -161,12 +169,12 @@ export default function CloudSyncWidget() {
         const d = data as unknown as SyncErrorEvent;
         setProgressMap((prev) => {
           const next = { ...prev };
-          delete next[d.drive];
+          delete next[mappingKey(d.drive, d.path)];
           return next;
         });
         setDrives((prev) =>
           prev.map((drive) =>
-            drive.drive === d.drive
+            drive.drive === d.drive && drive.path === d.path
               ? {
                   ...drive,
                   status: "error" as const,
@@ -226,9 +234,9 @@ export default function CloudSyncWidget() {
         <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2">
           {drives.map((drive) => (
             <SyncDriveCard
-              key={drive.drive}
+              key={mappingKey(drive.drive, drive.path)}
               drive={drive}
-              progress={progressMap[drive.drive] ?? null}
+              progress={progressMap[mappingKey(drive.drive, drive.path)] ?? null}
               onSyncStarted={handleSyncStarted}
             />
           ))}

@@ -16,6 +16,7 @@ vi.mock("./api", async () => {
 function errored(overrides: Partial<SyncDriveStatus> = {}): SyncDriveStatus {
   return {
     drive: "photos",
+    path: "",
     remote: "gdrive:photos",
     status: "error",
     last_synced_at: null,
@@ -91,7 +92,7 @@ describe("SyncDriveCard states the backend now reports", () => {
   });
 
   it.each([
-    ["source_empty", "Drive folder is missing or empty", /Check that the drive is mounted/],
+    ["source_empty", "Folder is missing or empty", /Check that the drive is mounted/],
     ["delete_limit", "Too many deletions", /raise max_delete in sync-config\.json/],
   ])("gives %s its own title and remedy in place of the raw message", (kind, title, remedy) => {
     renderCard(
@@ -112,6 +113,7 @@ describe("SyncDriveCard absolute timestamps", () => {
   function syncedAt(iso: string): SyncDriveStatus {
     return {
       drive: "photos",
+      path: "",
       remote: "gdrive:photos",
       status: "idle",
       last_synced_at: iso,

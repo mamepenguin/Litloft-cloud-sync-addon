@@ -17,6 +17,8 @@ export interface SyncResult {
 
 export interface SyncDriveStatus {
   drive: string;
+  // Relative to the drive root; "" is the whole drive.
+  path: string;
   remote: string;
   status: "idle" | "syncing" | "error" | "disabled";
   last_synced_at: string | null;
@@ -34,6 +36,16 @@ export interface SyncStatusResponse {
 
 const BASE = "/api/addons/cloud-sync";
 
+function mappingUrl(drive: string, path: string, action: string): string {
+  const url = `${BASE}/${encodeURIComponent(drive)}/${action}`;
+  return path ? `${url}?path=${encodeURIComponent(path)}` : url;
+}
+
+/** A string key for one (drive, path) mapping that no two mappings share. */
+export function mappingKey(drive: string, path: string): string {
+  return JSON.stringify([drive, path]);
+}
+
 export async function fetchSyncStatus(): Promise<SyncStatusResponse> {
   const res = await fetch(`${BASE}/status`, { credentials: "include" });
   if (!res.ok) return { drives: [], schedule: null, next_sync_at: null };
@@ -42,8 +54,9 @@ export async function fetchSyncStatus(): Promise<SyncStatusResponse> {
 
 export async function startSync(
   drive: string,
-): Promise<{ status: string; drive: string }> {
-  const res = await fetch(`${BASE}/${encodeURIComponent(drive)}/start`, {
+  path: string,
+): Promise<{ status: string; drive: string; path: string }> {
+  const res = await fetch(mappingUrl(drive, path, "start"), {
     method: "POST",
     credentials: "include",
   });
@@ -54,8 +67,8 @@ export async function startSync(
   return res.json();
 }
 
-export async function cancelSync(drive: string): Promise<void> {
-  const res = await fetch(`${BASE}/${encodeURIComponent(drive)}/cancel`, {
+export async function cancelSync(drive: string, path: string): Promise<void> {
+  const res = await fetch(mappingUrl(drive, path, "cancel"), {
     method: "POST",
     credentials: "include",
   });
@@ -65,8 +78,8 @@ export async function cancelSync(drive: string): Promise<void> {
   }
 }
 
-export async function fetchSyncLog(drive: string): Promise<string> {
-  const res = await fetch(`${BASE}/${encodeURIComponent(drive)}/log`, {
+export async function fetchSyncLog(drive: string, path: string): Promise<string> {
+  const res = await fetch(mappingUrl(drive, path, "log"), {
     credentials: "include",
   });
   if (!res.ok) return "";
