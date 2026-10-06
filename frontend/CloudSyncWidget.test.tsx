@@ -120,6 +120,68 @@ describe("SPEC-ADDON-003 CloudSyncWidget", () => {
     expect(cardOf("gd:root", remotes).textContent).not.toContain("動画 /");
   });
 
+  it("marks only the named mapping as syncing when its progress arrives", async () => {
+    const drives = [entry("動画", "", "gd:root", "idle"), entry("動画", "a", "gd:a", "idle")];
+    const remotes = drives.map((d) => d.remote);
+    await renderWith(drives);
+
+    act(() => push(progressEvent("動画", "a")));
+
+    expect(cardOf("gd:a", remotes).textContent).toMatch(/Syncing/);
+    expect(cardOf("gd:root", remotes).textContent).not.toMatch(/Syncing/);
+  });
+
+  it("applies a completion only to the mapping it names, within one drive", async () => {
+    const drives = [entry("動画", "", "gd:root"), entry("動画", "a", "gd:a")];
+    const remotes = drives.map((d) => d.remote);
+    await renderWith(drives);
+
+    act(() =>
+      push({
+        event: "sync:complete",
+        data: {
+          drive: "動画",
+          path: "a",
+          transferred_files: 1,
+          transferred_bytes: 1,
+          errors: 0,
+          elapsed_seconds: 1,
+        },
+      }),
+    );
+
+    expect(cardOf("gd:a", remotes).textContent).not.toMatch(/Syncing/);
+    expect(cardOf("gd:root", remotes).textContent).toMatch(/Syncing/);
+  });
+
+  it.each(["sync:complete", "sync:error"])(
+    "%s for one mapping leaves its sibling's progress in place",
+    async (event) => {
+      const drives = [entry("動画", "", "gd:root"), entry("動画", "a", "gd:a")];
+      const remotes = drives.map((d) => d.remote);
+      await renderWith(drives);
+
+      act(() => push(progressEvent("動画", "a")));
+      act(() =>
+        push({
+          event,
+          data: {
+            drive: "動画",
+            path: "",
+            message: "failed",
+            kind: null,
+            transferred_files: 0,
+            transferred_bytes: 0,
+            errors: 0,
+            elapsed_seconds: 1,
+          },
+        } as WebSocketEvent),
+      );
+
+      expect(cardOf("gd:a", remotes).textContent).toMatch(/3\/7 files/);
+    },
+  );
+
   it("applies progress only to the mapping it names, within one drive", async () => {
     const drives = [entry("動画", "", "gd:root"), entry("動画", "a", "gd:a")];
     const remotes = drives.map((d) => d.remote);

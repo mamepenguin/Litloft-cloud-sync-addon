@@ -153,6 +153,7 @@ OVERLAPPING = [
     ("gd:/", "gd:x/y"),
     ("gd:", "gd:/"),
     ("gd:a//b", "gd:a/b/c"),
+    ("gd:x/10:30", "gd:x"),
 ]
 
 NOT_OVERLAPPING = [

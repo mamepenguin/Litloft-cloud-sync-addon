@@ -545,3 +545,143 @@ async def test_a_mapping_can_start_again_after_any_ending(mworld, monkeypatch, e
     entry = mworld.entry("Photos", "a")
     assert entry.status == "idle"
     assert entry.error_message is None
+
+
+class _StreamingProc:
+    """An rclone that has launched and keeps its output open until released."""
+
+    def __init__(self, source: str, lines: list[bytes], terminated: list[str]) -> None:
+        self.source = source
+        self.returncode: int | None = None
+        self._lines = lines
+        self._terminated = terminated
+        self.release = asyncio.Event()
+
+    @property
+    def stderr(self):
+        async def lines():
+            for line in self._lines:
+                yield line
+            await self.release.wait()
+
+        return lines()
+
+    async def wait(self) -> int:
+        await self.release.wait()
+        if self.returncode is None:
+            self.returncode = 0
+        return self.returncode
+
+    def terminate(self) -> None:
+        self._terminated.append(self.source)
+        self.returncode = -15
+        self.release.set()
+
+
+@pytest.fixture()
+def streaming(mworld, monkeypatch):
+    """Launches that stay running after their process is handed back."""
+    procs: dict[str, _StreamingProc] = {}
+
+    async def exec_streaming(*argv, **kwargs):
+        mworld.launches.append(argv)
+        proc = _StreamingProc(argv[2], list(mworld.rclone_lines), mworld.terminated)
+        procs[argv[2]] = proc
+        return proc
+
+    monkeypatch.setattr(service.asyncio, "create_subprocess_exec", exec_streaming)
+    return procs
+
+
+async def _until(predicate) -> None:
+    for _ in range(200):
+        if predicate():
+            return
+        await asyncio.sleep(0.005)
+    raise AssertionError("condition not reached")
+
+
+# SPEC-ADDON-003 (I5, I8): two mappings of one drive, both past launch.
+class TestSiblingsWhileRunning:
+    async def test_cancel_terminates_only_its_own_process(self, mworld, streaming):
+        root = mworld.add_drive("Photos")
+        mworld.add_folder("Photos", "a")
+        mworld.map("Photos")
+        mworld.map("Photos", "a")
+
+        await mworld.manager.start_sync("Photos", "")
+        await mworld.manager.start_sync("Photos", "a")
+        await _until(lambda: len(streaming) == 2)
+        await asyncio.sleep(0.02)
+        await mworld.manager.cancel_sync("Photos", "a")
+        await _until(lambda: mworld.entry("Photos", "a").status != "syncing")
+
+        assert mworld.terminated == [f"{root}/a"]
+        assert mworld.entry("Photos", "").status == "syncing"
+        streaming[str(root)].release.set()
+        await settle()
+
+    async def test_progress_and_result_stay_with_their_mapping(self, mworld, streaming):
+        root = mworld.add_drive("Photos")
+        mworld.add_folder("Photos", "a")
+        mworld.map("Photos")
+        mworld.map("Photos", "a")
+        mworld.rclone_lines = [STATS_LINE]
+
+        await mworld.manager.start_sync("Photos", "")
+        await mworld.manager.start_sync("Photos", "a")
+        await _until(lambda: mworld.entry("Photos", "a").progress is not None
+                     and mworld.entry("Photos", "a").progress.percent == 50.0)
+        mworld.rclone_lines = []
+
+        assert mworld.entry("Photos", "a").progress.percent == 50.0
+        streaming[f"{root}/a"].release.set()
+        await _until(lambda: mworld.entry("Photos", "a").status == "idle")
+
+        assert mworld.entry("Photos", "a").last_result.transferred_bytes == 50
+        assert mworld.entry("Photos", "").status == "syncing"
+        streaming[str(root)].release.set()
+        await settle()
+
+    async def test_the_schedule_starts_a_mapping_whose_sibling_is_running(
+        self, mworld, streaming
+    ):
+        root = mworld.add_drive("Photos")
+        mworld.add_folder("Photos", "a")
+        mworld.map("Photos")
+        mworld.map("Photos", "a")
+
+        await mworld.manager.start_sync("Photos", "")
+        await _until(lambda: len(streaming) == 1)
+        await mworld.manager._run_scheduled_sync()
+        await _until(lambda: len(streaming) == 2)
+
+        assert sorted(mworld.sources()) == sorted([str(root), f"{root}/a"])
+        for proc in streaming.values():
+            proc.release.set()
+        await settle()
+
+
+# SPEC-ADDON-003 (I9): a finished run leaves nothing behind that a cancel of
+# the next run would act on instead of the next run itself.
+async def test_a_cancel_during_the_next_runs_check_is_not_lost(mworld, monkeypatch):
+    mworld.add_drive("Photos")
+    mworld.add_folder("Photos", "a")
+    mworld.map("Photos", "a")
+    await run(mworld, "Photos", "a")
+    checking = threading.Event()
+    release = threading.Event()
+
+    def slow_check(*args, **kwargs):
+        checking.set()
+        release.wait(5)
+        return True
+
+    monkeypatch.setattr(mworld.manager, "_source_usable", slow_check)
+    await mworld.manager.start_sync("Photos", "a")
+    await asyncio.to_thread(checking.wait, 5)
+    await mworld.manager.cancel_sync("Photos", "a")
+    release.set()
+    await settle()
+
+    assert len(mworld.launches) == 1

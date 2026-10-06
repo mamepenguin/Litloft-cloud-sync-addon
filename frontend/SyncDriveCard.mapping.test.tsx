@@ -78,6 +78,14 @@ describe("SPEC-ADDON-003 card title", () => {
 describe("SPEC-ADDON-003 card controls act on that mapping only", () => {
   const awkward = "a&b#c+d?e %f=g/録画";
 
+  it("Sync Now percent-encodes the drive name too", async () => {
+    renderCard(mapping({ drive: "a b#c?d", path: "" }));
+    fireEvent.click(screen.getByRole("button", { name: /sync now/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [call] = requested();
+    expect(call.pathname).toBe("/api/addons/cloud-sync/a b#c?d/start");
+  });
+
   it("Sync Now starts the card's mapping, with the path percent-encoded", async () => {
     renderCard(mapping({ path: awkward }));
 
