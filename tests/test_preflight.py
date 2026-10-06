@@ -187,6 +187,39 @@ async def test_a_second_start_during_the_first_never_launches_twice(world, secon
     assert len(world.launches) == 1
 
 
+@pytest.mark.parametrize("failure", ["source_empty", "launch_raises", "log_dir_fails"])
+async def test_a_run_that_fails_releases_the_drive_for_the_next_start(
+    world, monkeypatch, failure
+):
+    world.add_drive("Photos")
+    fake_exec = service.asyncio.create_subprocess_exec
+    ensure_log_dir = world.manager._ensure_log_dir
+    if failure == "source_empty":
+        for child in world.drives["Photos"].iterdir():
+            child.unlink()
+    elif failure == "launch_raises":
+        async def boom(*argv, **kwargs):
+            raise FileNotFoundError("rclone")
+
+        monkeypatch.setattr(service.asyncio, "create_subprocess_exec", boom)
+    else:
+        def no_log_dir():
+            raise OSError("read-only file system")
+
+        monkeypatch.setattr(world.manager, "_ensure_log_dir", no_log_dir)
+
+    await world.manager.start_sync("Photos")
+    await settle()
+    (world.drives["Photos"] / "back.txt").write_text("x")
+    monkeypatch.setattr(service.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(world.manager, "_ensure_log_dir", ensure_log_dir)
+
+    await world.manager.start_sync("Photos")
+    await settle()
+
+    assert len(world.launches) == 1
+
+
 def test_status_leaves_an_enabled_drive_as_it_was(world):
     world.add_drive("Photos")
 

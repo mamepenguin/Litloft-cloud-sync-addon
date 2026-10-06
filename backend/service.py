@@ -159,11 +159,11 @@ class SyncManager:
     async def _run_rclone(
         self, drive_name: str, drive_path: Path, remote: str
     ) -> None:
-        self._ensure_log_dir()
-        log_path = LOG_DIR / f"{self._safe_log_name(drive_name)}.log"
         start_time = time.monotonic()
 
         try:
+            self._ensure_log_dir()
+            log_path = LOG_DIR / f"{self._safe_log_name(drive_name)}.log"
             if not await asyncio.to_thread(self._source_usable, drive_path):
                 await self._handle_error(
                     drive_name,
