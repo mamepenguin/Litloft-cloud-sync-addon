@@ -626,15 +626,15 @@ class TestSiblingsWhileRunning:
         mworld.add_folder("Photos", "a")
         mworld.map("Photos")
         mworld.map("Photos", "a")
-        mworld.rclone_lines = [STATS_LINE]
 
         await mworld.manager.start_sync("Photos", "")
+        await _until(lambda: len(streaming) == 1)
+        mworld.rclone_lines = [STATS_LINE]
         await mworld.manager.start_sync("Photos", "a")
         await _until(lambda: mworld.entry("Photos", "a").progress is not None
                      and mworld.entry("Photos", "a").progress.percent == 50.0)
-        mworld.rclone_lines = []
 
-        assert mworld.entry("Photos", "a").progress.percent == 50.0
+        assert mworld.entry("Photos", "").progress.percent == 0.0
         streaming[f"{root}/a"].release.set()
         await _until(lambda: mworld.entry("Photos", "a").status == "idle")
 
