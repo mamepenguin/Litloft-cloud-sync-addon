@@ -1,3 +1,6 @@
+from zoneinfo import ZoneInfo
+
+from croniter import croniter
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -25,7 +28,24 @@ def _remote_place(remote: str) -> tuple[str, tuple[str, ...]]:
     return name, tuple(s for s in path.split("/") if s)
 
 
-def _remotes_overlap(a: str, b: str) -> bool:
+def remote_is_root(remote: str) -> bool:
+    return not _remote_place(remote)[1]
+
+
+def is_valid_cron(expr: str) -> bool:
+    # croniter also accepts a sixth (seconds) field.
+    return len(expr.split()) == 5 and croniter.is_valid(expr)
+
+
+def is_valid_timezone(name: str) -> bool:
+    try:
+        ZoneInfo(name)
+    except Exception:
+        return False
+    return True
+
+
+def remotes_overlap(a: str, b: str) -> bool:
     name_a, path_a = _remote_place(a)
     name_b, path_b = _remote_place(b)
     if name_a != name_b:
@@ -51,15 +71,34 @@ class SyncMapping(BaseModel):
             raise ValueError("Remote must not start with a dash")
         if ":" not in v:
             raise ValueError("Remote must contain ':' (e.g., 'myremote:path')")
+        # A mirror into the remote's root deletes everything else stored there.
+        if remote_is_root(v):
+            raise ValueError(f"Remote must name a folder, not the root: {v!r}")
         return v
 
 
 class SyncConfig(BaseModel):
     schedule: str | None = None
+    # IANA name the schedule is evaluated in; None is UTC.
+    timezone: str | None = None
     # Passed to rclone as --max-delete: a cap on deletes per run, not a check
     # made before the first one.
     max_delete: int = Field(default=200, ge=1, strict=True)
     mappings: list[SyncMapping]
+
+    @field_validator("schedule")
+    @classmethod
+    def validate_schedule(cls, v: str | None) -> str | None:
+        if v is not None and not is_valid_cron(v):
+            raise ValueError(f"Schedule is not a 5-field cron expression: {v!r}")
+        return v
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v: str | None) -> str | None:
+        if v is not None and not is_valid_timezone(v):
+            raise ValueError(f"Unknown time zone: {v!r}")
+        return v
 
     # Two mirrors writing to one place delete each other's files, so a file that
     # sets that up is refused as a whole rather than synced in part.
@@ -74,7 +113,7 @@ class SyncConfig(BaseModel):
             seen.add((m.drive, m.path))
         for i, a in enumerate(self.mappings):
             for b in self.mappings[i + 1:]:
-                if _remotes_overlap(a.remote, b.remote):
+                if remotes_overlap(a.remote, b.remote):
                     raise ValueError(
                         f"Remotes overlap: {a.remote!r} and {b.remote!r}"
                     )
@@ -117,4 +156,5 @@ class SyncDriveStatus(BaseModel):
 class SyncStatusResponse(BaseModel):
     drives: list[SyncDriveStatus]
     schedule: str | None = None
+    timezone: str | None = None
     next_sync_at: str | None = None
