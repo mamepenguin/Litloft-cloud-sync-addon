@@ -4,9 +4,12 @@ import json
 import logging
 import os
 import re
+import tempfile
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from croniter import croniter
 
@@ -22,12 +25,14 @@ from .schemas import (
     SyncStatusResponse,
     normalize_mapping_path,
 )
+from .settings import ConfigError, check_body
 
 logger = logging.getLogger(__name__)
 
-_RESOLVED_DIR = Path(__file__).resolve().parent
 LOG_DIR = config.DATA_DIR / "cloud-sync-logs"
 MAX_LOG_SIZE = 1_048_576  # 1MB
+LISTREMOTES_TIMEOUT = 10.0
+SCHEMA_VERSION = 1
 
 # The key under drives.json "addons", and the name the registry knows this
 # addon by: the checkout directory, hyphen included.
@@ -43,11 +48,41 @@ class PolicyBlocked(Exception):
 
 
 class MappingNotFound(ValueError):
-    """No mapping in sync-config.json has this drive and path."""
+    """No mapping in the configuration has this drive and path."""
 
 
 class DriveNotFound(ValueError):
     """The mapping's drive is not in drives.json."""
+
+
+class ConfigRefused(Exception):
+    """A PUT /config body broke at least one rule; nothing was changed."""
+
+    def __init__(self, errors: list[ConfigError]) -> None:
+        super().__init__(f"{len(errors)} configuration errors")
+        self.errors = errors
+
+
+@dataclass(frozen=True)
+class LoadedConfig:
+    source: str  # none | saved | invalid
+    config: SyncConfig
+    error: str | None = None
+
+
+def config_path() -> Path:
+    return Path(config.DATA_DIR) / "addons" / ADDON_NAME / "sync-config.json"
+
+
+def _zone(name: str | None):
+    return ZoneInfo(name) if name else UTC
+
+
+def next_sync_at(cfg: SyncConfig) -> str | None:
+    if not cfg.schedule:
+        return None
+    now = datetime.now(_zone(cfg.timezone))
+    return croniter(cfg.schedule, now).get_next(datetime).isoformat()
 
 
 class SyncManager:
@@ -55,40 +90,41 @@ class SyncManager:
         self._processes: dict[Key, asyncio.subprocess.Process] = {}
         # Held from start_sync until the run ends, so a second start during the
         # awaited source check cannot launch another rclone for the same mapping.
-        self._running: set[Key] = set()
+        # Insertion-ordered, so runs whose mapping left the file are listed in
+        # the order they were reserved.
+        self._running: dict[Key, None] = {}
         # A cancel that arrives before rclone has a process to terminate.
         self._cancelled: set[Key] = set()
         self._status: dict[Key, SyncDriveStatus] = {}
         self._config: SyncConfig | None = None
         self._scheduler_task: asyncio.Task[None] | None = None
+        self._save_lock = asyncio.Lock()
 
     @staticmethod
-    def _find_config() -> Path | None:
-        for candidate in [
-            _RESOLVED_DIR / "sync-config.json",
-            _RESOLVED_DIR.parent / "sync-config.json",
-        ]:
-            if candidate.exists():
-                return candidate
-        return None
-
-    def _load_config(self) -> SyncConfig:
-        CONFIG_PATH = self._find_config()
-        if CONFIG_PATH is None:
-            logger.warning("sync-config.json not found near %s", _RESOLVED_DIR)
-            self._config = SyncConfig(mappings=[])
-            return self._config
+    def read_config() -> LoadedConfig:
+        path = config_path()
+        if not path.exists():
+            return LoadedConfig("none", SyncConfig(mappings=[]))
         try:
-            with open(CONFIG_PATH) as f:
+            with path.open(encoding="utf-8") as f:
                 raw = json.load(f)
-            self._config = SyncConfig(**raw)
-        except (json.JSONDecodeError, ValueError) as exc:
+            if not isinstance(raw, dict):
+                raise ValueError("The file must hold a JSON object")
+            version = raw.get("schema_version")
+            if type(version) is not int or version != SCHEMA_VERSION:
+                raise ValueError(f"Unsupported schema_version: {version!r}")
+            return LoadedConfig("saved", SyncConfig(**raw))
+        except (OSError, ValueError, TypeError) as exc:
             logger.error(
-                "Failed to parse sync-config.json, so nothing syncs. After fixing "
-                "it, restart the backend to bring the schedule back: %s",
+                "Could not read %s, so nothing syncs. Save the Cloud Sync "
+                "settings again to replace it: %s",
+                path,
                 exc,
             )
-            self._config = SyncConfig(mappings=[])
+            return LoadedConfig("invalid", SyncConfig(mappings=[]), str(exc))
+
+    def _load_config(self) -> SyncConfig:
+        self._config = self.read_config().config
         return self._config
 
     def _get_mapping(self, drive_name: str, path: str) -> SyncMapping | None:
@@ -157,7 +193,11 @@ class SyncManager:
 
     async def start_sync(self, drive_name: str, path: object = "") -> None:
         key = self._key(drive_name, path)
-        mapping = self._get_mapping(*key) if key is not None else None
+        cfg = self._load_config()
+        mapping = next(
+            (m for m in cfg.mappings if key is not None and (m.drive, m.path) == key),
+            None,
+        )
         if key is None or mapping is None:
             raise MappingNotFound(
                 f"Mapping not found in sync config: {drive_name} {path!r}"
@@ -185,8 +225,12 @@ class SyncManager:
             progress=SyncProgress(),
         )
 
-        self._running.add(key)
-        asyncio.create_task(self._run_rclone(key, drive_path, mapping.remote))
+        self._running[key] = None
+        # The remote and the cap are fixed here: a save while the run checks
+        # its source must not re-target it.
+        asyncio.create_task(
+            self._run_rclone(key, drive_path, mapping.remote, cfg.max_delete)
+        )
 
     async def cancel_sync(self, drive_name: str, path: object = "") -> bool:
         # Looked up among the runs, not in the file, so a run stays cancellable
@@ -205,7 +249,7 @@ class SyncManager:
         return True
 
     async def _run_rclone(
-        self, key: Key, drive_path: Path, remote: str
+        self, key: Key, drive_path: Path, remote: str, max_delete: int
     ) -> None:
         start_time = time.monotonic()
         _, path = key
@@ -231,7 +275,7 @@ class SyncManager:
                 "rclone", "sync",
                 str(source),
                 remote,
-                "--max-delete", str(self._load_config().max_delete),
+                "--max-delete", str(max_delete),
                 "--stats", "1s",
                 "--stats-log-level", "NOTICE",
                 "--use-json-log",
@@ -259,7 +303,7 @@ class SyncManager:
             await self._handle_error(key, str(exc))
         finally:
             self._processes.pop(key, None)
-            self._running.discard(key)
+            self._running.pop(key, None)
             self._cancelled.discard(key)
 
     async def _parse_rclone_output(
@@ -420,7 +464,8 @@ class SyncManager:
                 error_msg = (
                     "Stopped: the sync would delete more files than max_delete "
                     "allows. Check that the drive is mounted, then raise "
-                    "max_delete in sync-config.json if the deletions are expected."
+                    "Max deletions per sync in the Cloud Sync settings if the "
+                    "deletions are expected."
                 )
             else:
                 error_msg = f"rclone exited with code {returncode}"
@@ -471,25 +516,20 @@ class SyncManager:
         - Trigger a drive scan to register new files in the DB
         """
 
-    def _get_next_sync_at(self) -> str | None:
-        cfg = self._load_config()
-        if not cfg.schedule:
-            return None
-        try:
-            cron = croniter(cfg.schedule, datetime.now(UTC))
-            next_dt = cron.get_next(datetime)
-            return next_dt.isoformat()
-        except (ValueError, KeyError):
-            return None
-
     def get_status(self) -> SyncStatusResponse:
         cfg = self._load_config()
         drives: list[SyncDriveStatus] = []
         for mapping in cfg.mappings:
-            status = self._status.get((mapping.drive, mapping.path))
+            key = (mapping.drive, mapping.path)
+            status = self._status.get(key)
             if status is not None and status.status == "syncing":
                 drives.append(status)
-            elif not self._policy_allows(mapping.drive):
+                continue
+            # A result recorded against another remote says nothing about
+            # this one.
+            if status is not None and status.remote != mapping.remote:
+                status = None
+            if not self._policy_allows(mapping.drive):
                 drives.append(SyncDriveStatus(
                     drive=mapping.drive,
                     path=mapping.path,
@@ -504,15 +544,21 @@ class SyncManager:
                     path=mapping.path,
                     remote=mapping.remote,
                 ))
+        in_file = {(m.drive, m.path) for m in cfg.mappings}
+        for key in self._running:
+            status = self._status.get(key)
+            if key not in in_file and status is not None:
+                drives.append(status)
         return SyncStatusResponse(
             drives=drives,
             schedule=cfg.schedule,
-            next_sync_at=self._get_next_sync_at(),
+            timezone=cfg.timezone,
+            next_sync_at=next_sync_at(cfg),
         )
 
     def get_log(self, drive_name: str, path: object = "") -> str:
         key = self._key(drive_name, path)
-        if key is None or self._get_mapping(*key) is None:
+        if key is None or (key not in self._running and self._get_mapping(*key) is None):
             raise MappingNotFound(
                 f"Mapping not found in sync config: {drive_name} {path!r}"
             )
@@ -540,20 +586,146 @@ class SyncManager:
         except OSError as exc:
             logger.error("Failed to write log to %s: %s", log_path, exc)
 
+    # ── Settings ───────────────────────────────────────────────
+
+    async def list_remotes(self) -> tuple[list[str], str | None]:
+        """The remotes `rclone listremotes` prints, or why there are none."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "rclone", "listremotes",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except OSError as exc:
+            return [], f"rclone could not be run: {exc}"
+        try:
+            out, err = await asyncio.wait_for(proc.communicate(), LISTREMOTES_TIMEOUT)
+        except TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return [], f"rclone listremotes did not answer within {LISTREMOTES_TIMEOUT:.0f} s"
+        if proc.returncode != 0:
+            detail = err.decode("utf-8", errors="replace").strip()
+            return [], detail or f"rclone listremotes exited with code {proc.returncode}"
+        lines = out.decode("utf-8", errors="replace").splitlines()
+        return [line.strip() for line in lines if line.strip()], None
+
+    def drive_choices(self) -> list[dict]:
+        """Raises when drives.json cannot be read."""
+        return [
+            {"name": d["name"], "enabled": self._policy_allows(d["name"])}
+            for d in config.load_drives()
+        ]
+
+    @staticmethod
+    def _folder_inside_drive(drive_root: Path, path: str) -> bool:
+        real_root = os.path.realpath(drive_root)
+        real = os.path.realpath(drive_root / path if path else drive_root)
+        if os.path.commonpath([real_root, real]) != real_root:
+            return False
+        return os.path.isdir(real)
+
+    async def _environment_errors(
+        self,
+        rows,
+        drive_names: set[str],
+        remotes: list[str],
+        remotes_error: str | None,
+    ) -> list[ConfigError]:
+        errors: list[ConfigError] = []
+        for row in rows:
+            if row.drive not in drive_names:
+                errors.append(ConfigError(
+                    "drive", "unknown_drive", f"Drive not found: {row.drive!r}", row.index,
+                ))
+            elif row.path is not None:
+                root = config.get_drive_path(row.drive)
+                if not await asyncio.to_thread(self._folder_inside_drive, root, row.path):
+                    errors.append(ConfigError(
+                        "path", "folder_not_found",
+                        f"No folder {row.path!r} inside drive {row.drive!r}", row.index,
+                    ))
+        if rows and remotes_error is not None:
+            errors.append(ConfigError(
+                "mappings", "remotes_unavailable",
+                f"Could not list the rclone remotes: {remotes_error}",
+            ))
+            return errors
+        for row in rows:
+            name = row.remote.partition(":")[0] + ":"
+            if row.remote_ok and name not in remotes:
+                errors.append(ConfigError(
+                    "remote", "remote_not_listed",
+                    f"rclone has no remote named {name!r}", row.index,
+                ))
+        return errors
+
+    @staticmethod
+    def _write_config(cfg: SyncConfig) -> None:
+        path = config_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"schema_version": SCHEMA_VERSION, **cfg.model_dump()}
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".sync-config.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+                f.write("\n")
+            os.replace(tmp, path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+
+    async def save_config(
+        self, raw: object
+    ) -> tuple[SyncConfig, list[str], str | None]:
+        """Validate and store a PUT /config body, then apply it.
+
+        Raises ConfigRefused when a rule fails, and lets a drives.json or write
+        failure propagate; in every failure the file and the scheduler are
+        left as they were.
+        """
+        async with self._save_lock:
+            drive_names = {d["name"] for d in config.load_drives()}
+            remotes, remotes_error = await self.list_remotes()
+            checked = check_body(raw)
+            errors = list(checked.errors)
+            errors += await self._environment_errors(
+                checked.rows, drive_names, remotes, remotes_error
+            )
+            if errors:
+                logger.info(
+                    "Refused Cloud Sync settings: %s", [e.as_dict() for e in errors]
+                )
+                raise ConfigRefused(errors)
+            cfg = checked.to_config()
+            await asyncio.to_thread(self._write_config, cfg)
+            await self.replace_scheduler(cfg)
+            return cfg, remotes, remotes_error
+
     # ── Scheduler ──────────────────────────────────────────────
 
-    def start_scheduler(self) -> None:
-        cfg = self._load_config()
+    def start_scheduler(self, cfg: SyncConfig | None = None) -> None:
+        """Replace the running loop with one for ``cfg`` (the stored file by default)."""
+        self.stop_scheduler()
+        if cfg is None:
+            cfg = self._load_config()
         if not cfg.schedule:
             logger.info("No schedule configured, skipping scheduler")
             return
-        if not croniter.is_valid(cfg.schedule):
-            logger.error("Invalid cron expression: %s", cfg.schedule)
-            return
         self._scheduler_task = asyncio.create_task(
-            self._scheduler_loop(cfg.schedule)
+            self._scheduler_loop(cfg.schedule, cfg.timezone)
         )
-        logger.info("Scheduler started with schedule: %s", cfg.schedule)
+        logger.info(
+            "Scheduler started with schedule %s (%s)", cfg.schedule, cfg.timezone or "UTC"
+        )
+
+    async def replace_scheduler(self, cfg: SyncConfig | None = None) -> None:
+        """Start the loop for ``cfg`` once the previous loop has finished."""
+        old = self._scheduler_task
+        self.stop_scheduler()
+        if old is not None:
+            await asyncio.gather(old, return_exceptions=True)
+        self.start_scheduler(cfg)
 
     def stop_scheduler(self) -> None:
         if self._scheduler_task is not None:
@@ -561,12 +733,12 @@ class SyncManager:
             self._scheduler_task = None
             logger.info("Scheduler stopped")
 
-    async def _scheduler_loop(self, cron_expr: str) -> None:
+    async def _scheduler_loop(self, cron_expr: str, tz_name: str | None) -> None:
+        zone = _zone(tz_name)
         try:
             while True:
-                now = datetime.now(UTC)
-                cron = croniter(cron_expr, now)
-                next_dt = cron.get_next(datetime)
+                now = datetime.now(zone)
+                next_dt = croniter(cron_expr, now).get_next(datetime)
                 delay = (next_dt - now).total_seconds()
                 logger.info(
                     "Next scheduled sync at %s (in %.0fs)",

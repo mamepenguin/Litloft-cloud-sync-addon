@@ -352,13 +352,17 @@ describe("SPEC-ADDON-007 Cloud Sync settings section: loading", () => {
   });
 
   it("shows why the saved settings could not be read, with an empty form", async () => {
-    const sent = await saveWithoutEdits(
+    const save = await openWith(
       loaded(EMPTY, { source: "invalid", error: "schema_version must be 1" }),
     );
 
     expect(document.body.textContent).toMatch(
       /The saved settings could not be read: schema_version must be 1\.? ?Saving will replace them\./,
     );
+
+    fireEvent.click(save);
+    await waitFor(() => expect(puts).toHaveLength(1));
+    const sent = pick(puts[0]);
     expect(sent.mappings).toEqual([]);
     expect(sent.schedule).toBeNull();
   });

@@ -85,8 +85,9 @@ class World:
         self.tmp_path = tmp_path
         self.drive_dir = tmp_path / "drives"
         self.drive_dir.mkdir()
-        self.config_dir = tmp_path / "conf"
-        self.config_dir.mkdir()
+        self.data_dir = tmp_path / "data"
+        self.config_dir = self.data_dir / "addons" / "cloud-sync"
+        self.config_dir.mkdir(parents=True)
         self.log_dir = tmp_path / "logs"
         self.drives: dict[str, Path] = {}
         self.policy: dict[str, object] = {}
@@ -125,7 +126,11 @@ class World:
         self.write_config()
 
     def write_config(self) -> None:
-        body: dict = {"mappings": self.mappings, "max_delete": self.max_delete}
+        body: dict = {
+            "schema_version": 1,
+            "mappings": self.mappings,
+            "max_delete": self.max_delete,
+        }
         if self.schedule is not None:
             body["schedule"] = self.schedule
         self.write_raw(json.dumps(body, ensure_ascii=False))
@@ -185,7 +190,7 @@ def mworld(monkeypatch, tmp_path, manager_under_test):
     monkeypatch.setattr(service.config, "is_addon_feature_enabled", is_enabled)
     monkeypatch.setattr(service.asyncio, "create_subprocess_exec", fake_exec)
     monkeypatch.setattr(service, "LOG_DIR", w.log_dir)
-    monkeypatch.setattr(service, "_RESOLVED_DIR", w.config_dir)
+    monkeypatch.setattr(service.config, "DATA_DIR", w.data_dir)
     w.write_config()
     w.manager = manager_under_test
     return w

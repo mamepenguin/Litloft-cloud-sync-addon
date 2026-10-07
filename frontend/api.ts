@@ -31,6 +31,8 @@ export interface SyncDriveStatus {
 export interface SyncStatusResponse {
   drives: SyncDriveStatus[];
   schedule: string | null;
+  // IANA zone the schedule runs in; null is UTC.
+  timezone: string | null;
   next_sync_at: string | null;
 }
 
@@ -48,7 +50,7 @@ export function mappingKey(drive: string, path: string): string {
 
 export async function fetchSyncStatus(): Promise<SyncStatusResponse> {
   const res = await fetch(`${BASE}/status`, { credentials: "include" });
-  if (!res.ok) return { drives: [], schedule: null, next_sync_at: null };
+  if (!res.ok) return { drives: [], schedule: null, timezone: null, next_sync_at: null };
   return res.json();
 }
 

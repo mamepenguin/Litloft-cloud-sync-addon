@@ -31,43 +31,17 @@ Supports any rclone-compatible provider: Google Drive, AWS S3, Backblaze B2, Dro
 git clone https://github.com/mamepenguin/cloud-sync.git addons/cloud-sync
 ```
 
-### 2. Create sync configuration
-
-```bash
-cp addons/cloud-sync/sync-config.json.example addons/cloud-sync/sync-config.json
-```
-
-Edit `sync-config.json` with your mappings. A mapping mirrors a whole drive, or with `path` one folder inside it:
-
-```json
-{
-  "schedule": "0 */6 * * *",
-  "mappings": [
-    {
-      "drive": "Family Videos",
-      "remote": "gdrive:litloft/family"
-    },
-    {
-      "drive": "TV Shows",
-      "path": "Documentaries/2026",
-      "remote": "s3:my-bucket/tv-docs"
-    }
-  ]
-}
-```
-
-### 3. Docker (recommended)
+### 2. Docker (recommended)
 
 The Litloft Dockerfiles automatically discover addons placed in `addons/`. rclone installation, Python dependencies, frontend source copying, and page route generation are all handled during the build -- no manual setup required.
 
-Mount the rclone config and sync config into the container via `docker-compose.override.yml`:
+Mount the rclone config into the container via `docker-compose.override.yml`:
 
 ```yaml
 services:
   backend:
     volumes:
-      - ./rclone.conf:/root/.config/rclone/rclone.conf:ro
-      - ./addons/cloud-sync/sync-config.json:/app/addons/cloud-sync/sync-config.json:ro
+      - ~/.config/rclone:/root/.config/rclone:ro
 ```
 
 Then rebuild:
@@ -76,9 +50,9 @@ Then rebuild:
 docker compose up -d --build
 ```
 
-The addon will be available at `/addons/cloud-sync`.
+Then open **Settings** (`/admin/settings`) and set up Cloud Sync there.
 
-### 4. Local development (optional)
+### 3. Local development (optional)
 
 Run the setup script to create symlinks for backend and frontend:
 
@@ -100,18 +74,16 @@ pip install -r addons/cloud-sync/backend/requirements.txt
 
 ## Configuration
 
-### `sync-config.json`
+Cloud Sync is configured in **Settings** (`/admin/settings`, System tab, **Cloud Sync**). The settings are stored in `data/addons/cloud-sync/sync-config.json` and take effect when saved; no restart is needed.
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `schedule` | `string` | No | Cron expression (5-field). Omit to disable auto-sync. |
-| `max_delete` | `integer` | No | Most files one sync may delete from the remote (rclone `--max-delete`). Default `200`. |
-| `mappings` | `array` | Yes | Mapping list. |
-| `mappings[].drive` | `string` | Yes | Local drive name (must match a drive in `drives.json`). |
-| `mappings[].path` | `string` | No | Folder inside the drive to mirror, relative to the drive root. Omit for the whole drive. |
-| `mappings[].remote` | `string` | Yes | rclone remote in `remote_name:path` format. |
+| Setting | Description |
+|---|---|
+| Schedule | Off, daily, every few hours, weekly, or a 5-field cron expression. |
+| Time zone | The zone the schedule runs in. |
+| Max deletions per sync | Most files one sync may delete from the remote (rclone `--max-delete`). Default `200`. |
+| Mappings | A drive, optionally a folder inside it, and an rclone remote with a folder on it. |
 
-A drive may have several mappings for different folders. A file with two mappings of the same drive and folder, a `path` that starts with `/` or contains `..`, or two remotes that are the same place or one inside the other is rejected as a whole, and nothing syncs.
+The remote list shows the remotes `rclone listremotes` finds in the mounted rclone config. A save is refused, and nothing changes, if a drive or folder does not exist, a remote is not listed, a remote names no folder (mirroring into a remote's root would delete everything else there), two mappings name the same folder, or two remotes are the same place or one inside the other.
 
 ### Cron examples
 
@@ -128,6 +100,8 @@ Base path: `/api/addons/cloud-sync`
 
 | Method | Endpoint | Description |
 |---|---|---|
+| `GET` | `/config` | Stored settings, drives, rclone remotes |
+| `PUT` | `/config` | Replace the settings (`422` with every error when refused) |
 | `GET` | `/status` | Status of every mapping and next scheduled sync |
 | `POST` | `/{drive}/start?path=` | Start sync for a mapping (`path` omitted = whole drive) |
 | `POST` | `/{drive}/cancel?path=` | Cancel an in-progress sync |
@@ -159,7 +133,7 @@ Make sure `install.sh` ran during the Docker build and rclone is in the containe
 
 ### Drive not found (404)
 
-The `drive` value in `sync-config.json` must exactly match a drive name defined in Litloft's `drives.json`.
+The mapping's drive is no longer in `drives.json`. Choose another drive for it in Settings.
 
 ## License
 

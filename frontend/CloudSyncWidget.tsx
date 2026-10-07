@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useContext, useEffect, useState } from "react";
-import { Clock, Cloud } from "lucide-react";
+import Link from "next/link";
+import { Clock, Cloud, Settings } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { WebSocketContext } from "@/components/WebSocketProvider";
 import {
@@ -14,22 +15,41 @@ import SyncDriveCard from "./SyncDriveCard";
 
 type Translate = ReturnType<typeof useTranslations>;
 
-function describeCron(t: Translate, expr: string): string {
+const SETTINGS_HREF = "/admin/settings";
+
+function weekdayName(locale: string, day: number): string {
+  // 2023-01-01 was a Sunday, which cron counts as 0.
+  return new Intl.DateTimeFormat(locale, { weekday: "long", timeZone: "UTC" }).format(
+    new Date(Date.UTC(2023, 0, 1 + day)),
+  );
+}
+
+function describeCron(
+  t: Translate,
+  locale: string,
+  expr: string,
+  timezone: string | null,
+): string {
+  const zone = timezone ?? "UTC";
   const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) return expr;
-  const [min, hour, , , ] = parts;
-  if (hour.startsWith("*/")) {
-    return t("everyHours", { count: parseInt(hour.slice(2), 10) });
-  }
-  if (min.startsWith("*/")) {
+  const custom = t("customSchedule", { expr, zone });
+  if (parts.length !== 5) return custom;
+  const [min, hour, dom, month, dow] = parts;
+  const numeric = (v: string) => /^\d+$/.test(v);
+  const time = () => `${hour.padStart(2, "0")}:${min.padStart(2, "0")}`;
+  if (/^\*\/\d+$/.test(min) && hour === "*" && dom === "*" && month === "*" && dow === "*") {
     return t("everyMinutes", { count: parseInt(min.slice(2), 10) });
   }
-  if (hour !== "*" && min !== "*") {
-    return t("dailyAt", {
-      time: `${hour.padStart(2, "0")}:${min.padStart(2, "0")}`,
-    });
+  if (numeric(min) && /^\*\/\d+$/.test(hour) && dom === "*" && month === "*" && dow === "*") {
+    return t("everyHours", { count: parseInt(hour.slice(2), 10) });
   }
-  return expr;
+  if (numeric(min) && numeric(hour) && dom === "*" && month === "*") {
+    if (dow === "*") return t("dailyAt", { time: time(), zone });
+    if (/^[0-6]$/.test(dow)) {
+      return t("weeklyAt", { weekday: weekdayName(locale, Number(dow)), time: time(), zone });
+    }
+  }
+  return custom;
 }
 
 function formatNextSync(t: Translate, locale: string, isoString: string): string {
@@ -88,6 +108,7 @@ export default function CloudSyncWidget() {
   const { lastEvent } = useContext(WebSocketContext);
   const [drives, setDrives] = useState<SyncDriveStatus[]>([]);
   const [schedule, setSchedule] = useState<string | null>(null);
+  const [timezone, setTimezone] = useState<string | null>(null);
   const [nextSyncAt, setNextSyncAt] = useState<string | null>(null);
   const [progressMap, setProgressMap] = useState<
     Record<string, SyncProgress>
@@ -99,6 +120,7 @@ export default function CloudSyncWidget() {
       const data = await fetchSyncStatus();
       setDrives(data.drives);
       setSchedule(data.schedule);
+      setTimezone(data.timezone ?? null);
       setNextSyncAt(data.next_sync_at);
     } catch {
       // Silently fail, user can refresh
@@ -163,6 +185,9 @@ export default function CloudSyncWidget() {
               : drive,
           ),
         );
+        // A run whose mapping was removed from the settings leaves /status
+        // when it ends.
+        loadStatus();
         break;
       }
       case "sync:error": {
@@ -184,10 +209,11 @@ export default function CloudSyncWidget() {
               : drive,
           ),
         );
+        loadStatus();
         break;
       }
     }
-  }, [lastEvent]);
+  }, [lastEvent, loadStatus]);
 
   const handleSyncStarted = useCallback(() => {
     loadStatus();
@@ -199,10 +225,11 @@ export default function CloudSyncWidget() {
         <h2 className="text-sm font-semibold text-text-muted">
           {t("title")}
         </h2>
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
         {schedule && (
           <div className="flex items-center gap-1.5 text-xs text-text-muted">
             <Clock size={12} />
-            <span>{describeCron(t, schedule)}</span>
+            <span>{describeCron(t, locale, schedule, timezone)}</span>
             {nextSyncAt && (
               <span className="text-text-muted/60">
                 &middot; {t("nextSync", { when: formatNextSync(t, locale, nextSyncAt) })}
@@ -210,6 +237,14 @@ export default function CloudSyncWidget() {
             )}
           </div>
         )}
+          <Link
+            href={SETTINGS_HREF}
+            className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary"
+          >
+            <Settings size={12} aria-hidden="true" />
+            {t("settings")}
+          </Link>
+        </div>
       </div>
 
       {loading ? (
@@ -218,16 +253,10 @@ export default function CloudSyncWidget() {
         <div className="flex flex-col items-center gap-3 rounded-xl border border-bg-border bg-bg-card py-10 text-text-muted">
           <Cloud size={36} strokeWidth={1.5} />
           <div className="text-center">
-            <p className="text-sm font-medium">{t("noDrivesTitle")}</p>
-            <p className="mt-1 text-xs">
-              {t.rich("noDrivesDescription", {
-                code: (chunks) => (
-                  <code className="rounded-lg bg-bg-elevated px-1.5 py-0.5 text-xs">
-                    {chunks}
-                  </code>
-                ),
-              })}
-            </p>
+            <p className="text-sm font-medium">{t("notSetUp")}</p>
+            <Link href={SETTINGS_HREF} className="mt-1 inline-block text-xs underline">
+              {t("settings")}
+            </Link>
           </div>
         </div>
       ) : (

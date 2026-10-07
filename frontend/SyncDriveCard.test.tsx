@@ -93,7 +93,7 @@ describe("SyncDriveCard states the backend now reports", () => {
 
   it.each([
     ["source_empty", "Folder is missing or empty", /Check that the drive is mounted/],
-    ["delete_limit", "Too many deletions", /raise max_delete in sync-config\.json/],
+    ["delete_limit", "Too many deletions", /raise Max deletions per sync in the Cloud Sync settings/],
   ])("gives %s its own title and remedy in place of the raw message", (kind, title, remedy) => {
     renderCard(
       errored({ error_kind: kind, error_message: "raw backend text" }),
