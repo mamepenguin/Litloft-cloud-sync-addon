@@ -678,3 +678,30 @@ def test_the_settings_section_is_declared_for_the_admin_settings_slot():
     entries = router_module.ADDON_META["slots"].get("admin-settings-sections", [])
 
     assert [e["id"] for e in entries] == ["cloud-sync-settings"]
+
+
+# SPEC-ADDON-005 (I3): a body the PUT check passes but SyncConfig refuses is still a 422.
+async def test_a_body_that_only_syncconfig_refuses_is_still_a_422(sworld, monkeypatch):
+    from addons.cloud_sync import service
+    from addons.cloud_sync.settings import BodyCheck, CheckedRow
+
+    _valid_world(sworld)
+    assert (await sworld.put_config(BASELINE)).status_code == 200
+    before = sworld.config_path.read_bytes()
+
+    def lenient_check(raw):
+        return BodyCheck(
+            rows=[CheckedRow(0, "Photos", "a", "gdrive:", True)],
+            schedule=None,
+            timezone=None,
+            max_delete=200,
+        )
+
+    monkeypatch.setattr(service, "check_body", lenient_check)
+
+    response = await sworld.put_config(body(mappings=[row("Photos", "a", "gdrive:")]))
+
+    assert response.status_code == 422, response.text
+    assert set(response.json()) == {"errors"}
+    assert sworld.config_path.read_bytes() == before
+    assert sworld.stray_files() == []

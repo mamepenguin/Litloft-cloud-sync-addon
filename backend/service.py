@@ -12,6 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from croniter import croniter
+from pydantic import ValidationError
 
 import app.config as config
 from app.services.ws import manager
@@ -697,7 +698,13 @@ class SyncManager:
                     "Refused Cloud Sync settings: %s", [e.as_dict() for e in errors]
                 )
                 raise ConfigRefused(errors)
-            cfg = checked.to_config()
+            try:
+                cfg = checked.to_config()
+            except ValidationError as exc:
+                # settings.py and SyncConfig state the same rules twice; if they
+                # drift, the refusal still reaches the client as a refusal.
+                logger.error("PUT /config passed the body check but not SyncConfig: %s", exc)
+                raise ConfigRefused([ConfigError("body", "invalid_body", str(exc))])
             await asyncio.to_thread(self._write_config, cfg)
             await self.replace_scheduler(cfg)
             return cfg, remotes, remotes_error
