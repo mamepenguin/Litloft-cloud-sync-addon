@@ -15,6 +15,7 @@ from croniter import croniter
 from pydantic import ValidationError
 
 import app.config as config
+from app.services.diskpath import resolve_on_disk
 from app.services.ws import manager
 
 from .schemas import (
@@ -180,6 +181,11 @@ class SyncManager:
             return False
 
     @staticmethod
+    def _on_disk(drive_root: Path, path: str) -> Path:
+        # The configured path is NFC; the folder on a Linux drive may be NFD.
+        return resolve_on_disk(drive_root, path) if path else drive_root
+
+    @staticmethod
     def _source_usable(source: Path, drive_root: Path) -> bool:
         # A symlink inside the drive may point anywhere; the drive is the
         # boundary, so what it resolves to must stay under the drive's root.
@@ -254,9 +260,9 @@ class SyncManager:
     ) -> None:
         start_time = time.monotonic()
         _, path = key
-        source = drive_path / path if path else drive_path
 
         try:
+            source = await asyncio.to_thread(self._on_disk, drive_path, path)
             self._ensure_log_dir()
             log_path = self._log_path(key)
             if not await asyncio.to_thread(self._source_usable, source, drive_path):
@@ -621,7 +627,7 @@ class SyncManager:
     @staticmethod
     def _folder_inside_drive(drive_root: Path, path: str) -> bool:
         real_root = os.path.realpath(drive_root)
-        real = os.path.realpath(drive_root / path if path else drive_root)
+        real = os.path.realpath(SyncManager._on_disk(drive_root, path))
         if os.path.commonpath([real_root, real]) != real_root:
             return False
         return os.path.isdir(real)
