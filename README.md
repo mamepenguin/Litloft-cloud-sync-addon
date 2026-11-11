@@ -137,4 +137,4 @@ The mapping's drive is no longer in `drives.json`. Choose another drive for it i
 
 ## License
 
-MIT
+[MIT](LICENSE)
